@@ -1,0 +1,9 @@
+ktor:
+  deployment:
+    port: "$SERVER_PORT:8080"
+  application:
+    modules:
+      - pl.fairydeck.booksearch.ApplicationKt.module
+
+database:
+  path: "$DATABASE_PATH:./data/booksearch.db"

@@ -1,0 +1,11 @@
+node_modules
+.gradle
+build
+.git
+.maister
+.claude
+.idea
+*.iml
+frontend/dist
+frontend/node_modules
+backend/build

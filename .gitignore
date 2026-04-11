@@ -2,3 +2,18 @@ CLAUDE.md
 .claude
 .maister
 
+# Gradle
+build/
+.gradle/
+
+# Environment
+.env
+
+# Data
+data/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+node_modules/
+*.tsbuildinfo
