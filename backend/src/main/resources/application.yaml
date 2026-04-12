@@ -7,3 +7,10 @@ ktor:
 
 database:
   path: "$DATABASE_PATH:./data/booksearch.db"
+
+jwt:
+  secret: "$JWT_SECRET:dev-secret-change-in-production"
+  issuer: "$JWT_ISSUER:booksearch"
+  audience: "$JWT_AUDIENCE:booksearch-users"
+  accessTokenExpirationMs: 3600000
+  refreshTokenExpirationMs: 2592000000

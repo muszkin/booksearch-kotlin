@@ -1,0 +1,16 @@
+ktor:
+  deployment:
+    port: 8080
+  application:
+    modules:
+      - pl.fairydeck.booksearch.ApplicationKt.module
+
+database:
+  path: ":memory:"
+
+jwt:
+  secret: "test-secret-key-that-is-long-enough-for-hmac256"
+  issuer: "booksearch-test"
+  audience: "booksearch-test-audience"
+  accessTokenExpirationMs: 3600000
+  refreshTokenExpirationMs: 2592000000

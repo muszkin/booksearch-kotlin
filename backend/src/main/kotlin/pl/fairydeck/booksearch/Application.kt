@@ -1,8 +1,12 @@
 package pl.fairydeck.booksearch
 
+import com.auth0.jwt.JWT
+import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
+import io.ktor.server.auth.jwt.*
 import io.ktor.server.http.content.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.callid.*
@@ -12,9 +16,25 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.jooq.DSLContext
 import org.slf4j.MDC
+import pl.fairydeck.booksearch.api.AuthenticationException
+import pl.fairydeck.booksearch.api.AuthorizationException
+import pl.fairydeck.booksearch.api.ConflictException
+import pl.fairydeck.booksearch.api.NotFoundException
+import pl.fairydeck.booksearch.api.UserPrincipal
+import pl.fairydeck.booksearch.api.ValidationException
+import pl.fairydeck.booksearch.api.adminRoutes
+import pl.fairydeck.booksearch.api.authRoutes
 import pl.fairydeck.booksearch.api.healthRoutes
+import pl.fairydeck.booksearch.api.openApiRoutes
+import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
+import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
+import pl.fairydeck.booksearch.repository.RefreshTokenRepository
+import pl.fairydeck.booksearch.repository.SystemConfigRepository
+import pl.fairydeck.booksearch.repository.UserRepository
+import pl.fairydeck.booksearch.service.AuthService
 import java.util.UUID
 
 fun main(args: Array<String>) {
@@ -26,7 +46,74 @@ fun Application.module() {
     configureRequestLogger()
     configureContentNegotiation()
     configureStatusPages()
-    configureRouting()
+
+    val dsl = configureDatabase()
+
+    val jwtSecret = environment.config.property("jwt.secret").getString()
+    val jwtIssuer = environment.config.property("jwt.issuer").getString()
+    val jwtAudience = environment.config.property("jwt.audience").getString()
+    configureAuthentication(jwtSecret, jwtIssuer, jwtAudience)
+
+    val userRepository = UserRepository(dsl)
+    val refreshTokenRepository = RefreshTokenRepository(dsl)
+    val passwordResetTokenRepository = PasswordResetTokenRepository(dsl)
+    val systemConfigRepository = SystemConfigRepository(dsl)
+
+    val accessTokenExpirationMs = environment.config.property("jwt.accessTokenExpirationMs").getString().toLong()
+    val refreshTokenExpirationMs = environment.config.property("jwt.refreshTokenExpirationMs").getString().toLong()
+
+    val databasePath = environment.config.property("database.path").getString()
+    if (databasePath != ":memory:" && jwtSecret == "dev-secret-change-in-production") {
+        log.warn("JWT secret is using default value! Set JWT_SECRET environment variable for production.")
+    }
+
+    val authService = AuthService(
+        userRepository = userRepository,
+        refreshTokenRepository = refreshTokenRepository,
+        passwordResetTokenRepository = passwordResetTokenRepository,
+        systemConfigRepository = systemConfigRepository,
+        jwtSecret = jwtSecret,
+        jwtIssuer = jwtIssuer,
+        jwtAudience = jwtAudience,
+        accessTokenExpirationMs = accessTokenExpirationMs,
+        refreshTokenExpirationMs = refreshTokenExpirationMs
+    )
+
+    configureRouting(authService)
+}
+
+private fun Application.configureDatabase(): DSLContext {
+    val databasePath = environment.config.property("database.path").getString()
+    return if (databasePath == ":memory:") {
+        DatabaseFactory.createInMemory()
+    } else {
+        DatabaseFactory.create(databasePath)
+    }
+}
+
+private fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: String, jwtAudience: String) {
+    install(Authentication) {
+        jwt("jwt") {
+            verifier(
+                JWT.require(Algorithm.HMAC256(jwtSecret))
+                    .withIssuer(jwtIssuer)
+                    .withAudience(jwtAudience)
+                    .build()
+            )
+            validate { credential ->
+                val userId = credential.payload.subject?.toIntOrNull() ?: return@validate null
+                val email = credential.payload.getClaim("email")?.asString() ?: return@validate null
+                val isSuperAdmin = credential.payload.getClaim("is_super_admin")?.asBoolean() ?: false
+                UserPrincipal(userId = userId, email = email, isSuperAdmin = isSuperAdmin)
+            }
+            challenge { _, _ ->
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    ErrorResponse(HttpStatusCode.Unauthorized.value, "Invalid or expired token")
+                )
+            }
+        }
+    }
 }
 
 private fun Application.configureCallId() {
@@ -66,6 +153,36 @@ private fun Application.configureContentNegotiation() {
 
 private fun Application.configureStatusPages() {
     install(StatusPages) {
+        exception<AuthenticationException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Unauthorized,
+                ErrorResponse(HttpStatusCode.Unauthorized.value, cause.message ?: "Unauthorized")
+            )
+        }
+        exception<AuthorizationException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Forbidden,
+                ErrorResponse(HttpStatusCode.Forbidden.value, cause.message ?: "Forbidden")
+            )
+        }
+        exception<ConflictException> { call, cause ->
+            call.respond(
+                HttpStatusCode.Conflict,
+                ErrorResponse(HttpStatusCode.Conflict.value, cause.message ?: "Conflict")
+            )
+        }
+        exception<ValidationException> { call, cause ->
+            call.respond(
+                HttpStatusCode.UnprocessableEntity,
+                ErrorResponse(HttpStatusCode.UnprocessableEntity.value, cause.message ?: "Validation error")
+            )
+        }
+        exception<NotFoundException> { call, cause ->
+            call.respond(
+                HttpStatusCode.NotFound,
+                ErrorResponse(HttpStatusCode.NotFound.value, cause.message ?: "Not found")
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(
@@ -79,9 +196,12 @@ private fun Application.configureStatusPages() {
     }
 }
 
-private fun Application.configureRouting() {
+private fun Application.configureRouting(authService: AuthService) {
     routing {
         healthRoutes()
+        authRoutes(authService)
+        adminRoutes(authService)
+        openApiRoutes()
 
         route("/api/{...}") {
             handle {

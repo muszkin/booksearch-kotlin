@@ -3,6 +3,7 @@ package pl.fairydeck.booksearch.api
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.server.config.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
@@ -12,18 +13,17 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import pl.fairydeck.booksearch.module
 
 class StatusPagesTest {
 
     @Test
     fun shouldReturnJsonErrorForUnhandledException() = testApplication {
-        application {
-            module()
-            routing {
-                get("/api/error-trigger") {
-                    throw RuntimeException("Simulated failure")
-                }
+        environment {
+            config = ApplicationConfig("application.yaml")
+        }
+        routing {
+            get("/api/error-trigger") {
+                throw RuntimeException("Simulated failure")
             }
         }
 
@@ -42,7 +42,9 @@ class StatusPagesTest {
 
     @Test
     fun shouldReturnJson404ForUnmatchedApiRoutes() = testApplication {
-        application { module() }
+        environment {
+            config = ApplicationConfig("application.yaml")
+        }
 
         val response = client.get("/api/nonexistent-endpoint")
 

@@ -14,7 +14,7 @@ class ApplicationTest {
 
     @Test
     fun shouldStartWithoutErrors() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         assertEquals(HttpStatusCode.OK, response.status)
@@ -22,7 +22,7 @@ class ApplicationTest {
 
     @Test
     fun shouldSerializeJsonResponsesViaContentNegotiation() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         val contentType = response.contentType()
@@ -37,7 +37,7 @@ class ApplicationTest {
 
     @Test
     fun shouldLoadApplicationConfiguration() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         assertEquals(HttpStatusCode.OK, response.status)

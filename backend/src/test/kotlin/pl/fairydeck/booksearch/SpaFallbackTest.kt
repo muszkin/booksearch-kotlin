@@ -11,7 +11,7 @@ class SpaFallbackTest {
 
     @Test
     fun shouldServeFrontendForUnknownNonApiRoute() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/some/frontend/path")
 
@@ -25,7 +25,7 @@ class SpaFallbackTest {
 
     @Test
     fun shouldServeHealthEndpointAsApiNotFallback() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
 

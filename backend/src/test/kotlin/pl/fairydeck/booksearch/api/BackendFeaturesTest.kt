@@ -6,6 +6,7 @@ import ch.qos.logback.core.read.ListAppender
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.server.config.*
 import io.ktor.server.testing.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -13,13 +14,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.slf4j.LoggerFactory
-import pl.fairydeck.booksearch.module
 
 class BackendFeaturesTest {
 
     @Test
     fun shouldReturnOkStatusFromHealthEndpoint() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         assertEquals(HttpStatusCode.OK, response.status)
@@ -30,7 +30,7 @@ class BackendFeaturesTest {
 
     @Test
     fun shouldReturnJsonContentTypeFromHealthEndpoint() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         val contentType = response.contentType()
@@ -42,7 +42,7 @@ class BackendFeaturesTest {
 
     @Test
     fun shouldReflectXRequestIdFromRequest() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val requestId = "test-request-id-12345"
         val response = client.get("/api/health") {
@@ -54,7 +54,7 @@ class BackendFeaturesTest {
 
     @Test
     fun shouldGenerateXRequestIdWhenNotProvided() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
 
         val response = client.get("/api/health")
         val generatedId = response.headers["X-Request-Id"]
@@ -65,7 +65,7 @@ class BackendFeaturesTest {
 
     @Test
     fun shouldLogRequestMethodPathAndStatusCode() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
         val logEvents = attachListAppender("pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin")
 
         client.get("/api/health")
@@ -78,7 +78,7 @@ class BackendFeaturesTest {
 
     @Test
     fun shouldIncludeXRequestIdInLogMdc() = testApplication {
-        application { module() }
+        environment { config = io.ktor.server.config.ApplicationConfig("application.yaml") }
         val logEvents = attachListAppender("pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin")
 
         val requestId = "log-test-request-id-67890"
