@@ -112,8 +112,10 @@ object HtmlParser {
         val document = Jsoup.parse(html)
 
         return document.select("a[href]")
-            .firstOrNull { it.attr("href").contains(md5Prefix) }
-            ?.attr("href")
+            .map { it.attr("href") }
+            .firstOrNull { href ->
+                href.contains(md5Prefix) && href.startsWith("http")
+            }
     }
 
     private data class FormatInfo(

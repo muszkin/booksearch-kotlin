@@ -88,15 +88,32 @@ class DownloadService(
             downloadJobRepository.updateProgress(jobId, "fetching_slow_download", 40)
             logger.info("Job {}: fetching slow download page, {} links available", jobId, downloadLinks.size)
 
-            val slowDownloadUrl = resolveSlowDownloadUrl(mirror, downloadLinks.first().url)
-            val slowDownloadPage = solvearrClient.fetchPageWithCookies(slowDownloadUrl)
-            val fileUrl = HtmlParser.parseSlowDownloadPageFileUrl(slowDownloadPage.html, bookMd5)
-                ?: throw IllegalStateException("Could not find direct file URL on slow download page for $bookMd5")
+            var fileUrl: String? = null
+            var allCookies = detailPage.cookies
+            for ((index, link) in downloadLinks.withIndex()) {
+                val slowDownloadUrl = resolveSlowDownloadUrl(mirror, link.url)
+                logger.info("Job {}: trying slow download link {}/{}: {}", jobId, index + 1, downloadLinks.size, slowDownloadUrl)
+                try {
+                    val slowDownloadPage = solvearrClient.fetchPageWithCookies(slowDownloadUrl)
+                    val foundUrl = HtmlParser.parseSlowDownloadPageFileUrl(slowDownloadPage.html, bookMd5)
+                    if (foundUrl != null) {
+                        fileUrl = foundUrl
+                        allCookies = detailPage.cookies + slowDownloadPage.cookies
+                        logger.info("Job {}: found file URL on link {}: {}", jobId, index + 1, foundUrl.take(80))
+                        break
+                    }
+                    logger.warn("Job {}: no file URL on link {}, trying next...", jobId, index + 1)
+                } catch (e: Exception) {
+                    logger.warn("Job {}: link {} failed: {}", jobId, index + 1, e.message)
+                }
+            }
+
+            if (fileUrl == null) {
+                throw IllegalStateException("Could not find direct file URL on any slow download page for $bookMd5 (tried ${downloadLinks.size} links)")
+            }
 
             downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
             logger.info("Job {}: downloading file from {}", jobId, fileUrl)
-
-            val allCookies = detailPage.cookies + slowDownloadPage.cookies
             val fileBytes = impersonatorHttpClient.fetchBinary(fileUrl, allCookies)
 
             val userDir = File(scraperConfig.dataPath, userId.toString())

@@ -26,6 +26,9 @@ class SolvearrClient(
         engine {
             config {
                 followRedirects(true)
+                readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             }
         }
     }
@@ -85,7 +88,7 @@ class SolvearrClient(
     }
 
     companion object {
-        private const val SOLVEARR_TIMEOUT_MS = 60000
+        private const val SOLVEARR_TIMEOUT_MS = 90000
     }
 }
 

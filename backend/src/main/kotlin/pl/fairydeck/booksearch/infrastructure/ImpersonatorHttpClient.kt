@@ -23,6 +23,12 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         OkHttpClient.Builder().build()
     }
 
+    private val plainHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(true)
+        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     private val lastRequestTime = AtomicLong(0L)
 
     suspend fun fetch(url: String): HttpResult {
@@ -103,7 +109,7 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
                         .header("Cookie", cookieHeader)
                         .build()
 
-                    val response = httpClient.newCall(request).execute()
+                    val response = plainHttpClient.newCall(request).execute()
 
                     if (!response.isSuccessful) {
                         throw IOException("HTTP ${response.code} downloading $url")
