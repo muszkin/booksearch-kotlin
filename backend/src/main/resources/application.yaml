@@ -14,3 +14,15 @@ jwt:
   audience: "$JWT_AUDIENCE:booksearch-users"
   accessTokenExpirationMs: 3600000
   refreshTokenExpirationMs: 2592000000
+
+scraper:
+  cacheTtlDays: 7
+  requestDelayMs: 1500
+  maxRetries: 2
+  backoffMultiplier: 2.0
+  solvearrUrl: "$SOLVEARR_URL:http://solvearr:8191"
+  userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+mirror:
+  domains: "$MIRROR_DOMAINS:annas-archive.gd,annas-archive.pk,annas-archive.gl,annas-archive.li,annas-archive.se,annas-archive.gs"
+  refreshIntervalHours: 24

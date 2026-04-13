@@ -7,6 +7,7 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven("https://jitpack.io")
 }
 
 group = "pl.fairydeck.booksearch"
@@ -42,6 +43,11 @@ dependencies {
     implementation(libs.sqlite.jdbc)
     implementation(libs.bcrypt)
 
+    implementation(libs.jsoup)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.impersonator.okhttp)
+
     implementation(libs.logback.classic)
     implementation(libs.logstash.logback.encoder)
 
@@ -56,6 +62,7 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.mockk)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
@@ -138,7 +145,7 @@ val jooqCodegen by tasks.registering(JavaExec::class) {
                     <name>org.jooq.codegen.KotlinGenerator</name>
                     <database>
                         <name>org.jooq.meta.sqlite.SQLiteDatabase</name>
-                        <includes>users|refresh_tokens|password_reset_tokens|system_config</includes>
+                        <includes>users|refresh_tokens|password_reset_tokens|system_config|books|user_library|mirrors</includes>
                         <excludes>DATABASECHANGELOG|DATABASECHANGELOGLOCK</excludes>
                     </database>
                     <generate>

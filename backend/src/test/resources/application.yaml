@@ -14,3 +14,15 @@ jwt:
   audience: "booksearch-test-audience"
   accessTokenExpirationMs: 3600000
   refreshTokenExpirationMs: 2592000000
+
+scraper:
+  cacheTtlDays: 7
+  requestDelayMs: 100
+  maxRetries: 0
+  backoffMultiplier: 1.0
+  solvearrUrl: "http://localhost:8191"
+  userAgent: "TestAgent/1.0"
+
+mirror:
+  domains: "annas-archive.gd,annas-archive.pk"
+  refreshIntervalHours: 24

@@ -176,6 +176,155 @@ paths:
         '409':
           description: Email already exists
 
+  /api/search:
+    get:
+      operationId: searchBooks
+      tags: [search]
+      summary: Search for books
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: lang
+          in: query
+          schema:
+            type: string
+            default: pl
+          description: Book language filter
+        - name: ext
+          in: query
+          schema:
+            type: string
+            default: epub
+          description: Book format filter
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - name: maxPages
+          in: query
+          schema:
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 10
+          description: Maximum pages to scrape
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Missing or invalid query parameters
+        '401':
+          description: Not authenticated
+
+  /api/library:
+    get:
+      operationId: getUserLibrary
+      tags: [library]
+      summary: Get user's library (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated library list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryListResponse'
+        '401':
+          description: Not authenticated
+
+    post:
+      operationId: addToLibrary
+      tags: [library]
+      summary: Add a book to user's library
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddToLibraryRequest'
+      responses:
+        '201':
+          description: Book added to library
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LibraryBook'
+        '404':
+          description: Book not found
+        '409':
+          description: Book already in library with this format
+
+  /api/library/{id}:
+    delete:
+      operationId: removeFromLibrary
+      tags: [library]
+      summary: Remove a book from user's library
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Entry removed
+        '404':
+          description: Entry not found
+
+  /api/library/check:
+    get:
+      operationId: checkOwnership
+      tags: [library]
+      summary: Check ownership for given book MD5s
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: md5
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Comma-separated list of book MD5 hashes
+      responses:
+        '200':
+          description: Ownership info per MD5
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/OwnershipInfo'
+        '401':
+          description: Not authenticated
+
   /api/admin/users/{id}/password:
     put:
       operationId: changeUserPassword
@@ -203,6 +352,11 @@ paths:
           description: User not found
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     RegisterRequest:
       type: object
@@ -330,6 +484,126 @@ components:
         sendLoginLink:
           type: boolean
           default: false
+
+    SearchResponse:
+      type: object
+      required: [results, totalResults, query]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookResult'
+        totalResults:
+          type: integer
+        query:
+          type: string
+
+    BookResult:
+      type: object
+      required: [md5, title, author, language, format, fileSize, detailUrl, coverUrl, publisher, year, description, matchType, ownedFormats]
+      properties:
+        md5:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        language:
+          type: string
+        format:
+          type: string
+        fileSize:
+          type: string
+        detailUrl:
+          type: string
+        coverUrl:
+          type: string
+        publisher:
+          type: string
+        year:
+          type: string
+        description:
+          type: string
+        matchType:
+          type: string
+          enum: [exact, title, author, none]
+        ownedFormats:
+          type: array
+          items:
+            type: string
+
+    OwnershipInfo:
+      type: object
+      required: [matchType, ownedFormats]
+      properties:
+        matchType:
+          type: string
+          enum: [exact, title, author, none]
+        ownedFormats:
+          type: array
+          items:
+            type: string
+
+    AddToLibraryRequest:
+      type: object
+      required: [bookMd5, format]
+      properties:
+        bookMd5:
+          type: string
+        format:
+          type: string
+
+    LibraryBook:
+      type: object
+      required: [id, bookMd5, format, addedAt, title, author, language, fileSize, detailUrl, coverUrl, publisher, year, description]
+      properties:
+        id:
+          type: integer
+        bookMd5:
+          type: string
+        format:
+          type: string
+        filePath:
+          type: string
+          nullable: true
+        addedAt:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        language:
+          type: string
+        fileSize:
+          type: string
+        detailUrl:
+          type: string
+        coverUrl:
+          type: string
+        publisher:
+          type: string
+        year:
+          type: string
+        description:
+          type: string
+
+    LibraryListResponse:
+      type: object
+      required: [items, totalItems, page, pageSize, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LibraryBook'
+        totalItems:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalPages:
+          type: integer
 
     UserResponse:
       type: object

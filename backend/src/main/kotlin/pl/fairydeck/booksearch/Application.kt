@@ -27,14 +27,30 @@ import pl.fairydeck.booksearch.api.ValidationException
 import pl.fairydeck.booksearch.api.adminRoutes
 import pl.fairydeck.booksearch.api.authRoutes
 import pl.fairydeck.booksearch.api.healthRoutes
+import pl.fairydeck.booksearch.api.libraryRoutes
+import pl.fairydeck.booksearch.api.mirrorRoutes
 import pl.fairydeck.booksearch.api.openApiRoutes
+import pl.fairydeck.booksearch.api.searchRoutes
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
+import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
+import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
+import pl.fairydeck.booksearch.infrastructure.ScraperConfig
+import pl.fairydeck.booksearch.infrastructure.SolvearrClient
+import pl.fairydeck.booksearch.repository.BookRepository
+import pl.fairydeck.booksearch.repository.MirrorRepository
 import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
+import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
 import pl.fairydeck.booksearch.service.AuthService
+import pl.fairydeck.booksearch.service.LibraryService
+import pl.fairydeck.booksearch.service.MirrorService
+import pl.fairydeck.booksearch.service.ScraperService
+import pl.fairydeck.booksearch.service.SearchService
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 fun main(args: Array<String>) {
@@ -79,7 +95,33 @@ fun Application.module() {
         refreshTokenExpirationMs = refreshTokenExpirationMs
     )
 
-    configureRouting(authService)
+    val scraperConfig = ScraperConfig.fromEnvironment(environment)
+    val mirrorConfig = MirrorConfig.fromEnvironment(environment)
+    val mirrorRepository = MirrorRepository(dsl)
+    val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
+    val mirrorService = MirrorService(mirrorRepository, impersonatorHttpClient, mirrorConfig)
+
+    val solvearrClient = SolvearrClient(scraperConfig)
+    val scraperService = ScraperService(impersonatorHttpClient, solvearrClient, mirrorService)
+    val bookRepository = BookRepository(dsl)
+    val userLibraryRepository = UserLibraryRepository(dsl)
+    val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, scraperConfig.cacheTtlDays)
+    val libraryService = LibraryService(userLibraryRepository, bookRepository)
+
+    configureRouting(authService, mirrorService, searchService, libraryService)
+
+    val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
+    launch {
+        mirrorService.refreshMirrors()
+        while (true) {
+            delay(mirrorRefreshIntervalMs)
+            try {
+                mirrorService.refreshMirrors()
+            } catch (e: Exception) {
+                log.error("Mirror refresh failed", e)
+            }
+        }
+    }
 }
 
 private fun Application.configureDatabase(): DSLContext {
@@ -183,6 +225,13 @@ private fun Application.configureStatusPages() {
                 ErrorResponse(HttpStatusCode.NotFound.value, cause.message ?: "Not found")
             )
         }
+        exception<pl.fairydeck.booksearch.infrastructure.ScraperException> { call, cause ->
+            call.application.environment.log.error("Scraper failure", cause)
+            call.respond(
+                HttpStatusCode.BadGateway,
+                ErrorResponse(HttpStatusCode.BadGateway.value, "Search service temporarily unavailable")
+            )
+        }
         exception<Throwable> { call, cause ->
             call.application.environment.log.error("Unhandled exception", cause)
             call.respond(
@@ -196,11 +245,14 @@ private fun Application.configureStatusPages() {
     }
 }
 
-private fun Application.configureRouting(authService: AuthService) {
+private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService) {
     routing {
         healthRoutes()
         authRoutes(authService)
         adminRoutes(authService)
+        mirrorRoutes(mirrorService)
+        searchRoutes(searchService)
+        libraryRoutes(libraryService)
         openApiRoutes()
 
         route("/api/{...}") {

@@ -17,3 +17,10 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+  # solvearr:
+  #   image: ghcr.io/flaresolverr/flaresolverr:latest
+  #   ports:
+  #     - "8191:8191"
+  #   environment:
+  #     - LOG_LEVEL=info

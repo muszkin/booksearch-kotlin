@@ -39,10 +39,3 @@ fun Route.adminRoutes(authService: AuthService) {
     }
 }
 
-private fun requireSuperAdmin(call: io.ktor.server.application.ApplicationCall) {
-    val principal = call.principal<UserPrincipal>()
-        ?: throw AuthenticationException("Authentication required")
-    if (!principal.isSuperAdmin) {
-        throw AuthorizationException("Super-admin access required")
-    }
-}

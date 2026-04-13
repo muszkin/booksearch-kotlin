@@ -7,3 +7,9 @@ databaseChangeLog:
       file: db/changelog/migrations/003-create-password-reset-tokens-table.sql
   - include:
       file: db/changelog/migrations/004-create-system-config-table.sql
+  - include:
+      file: db/changelog/migrations/005-create-books-table.sql
+  - include:
+      file: db/changelog/migrations/006-create-user-library-table.sql
+  - include:
+      file: db/changelog/migrations/007-create-mirrors-table.sql
