@@ -107,6 +107,77 @@ class BookSearchMigrationsTest {
     }
 
     @Test
+    fun shouldCreateDownloadJobsTableWithAllColumns() {
+        val columns = fetchTableColumns("download_jobs")
+        val columnNames = columns.map { it["name"] as String }
+
+        val expectedColumns = listOf(
+            "id", "user_id", "book_md5", "format", "status", "progress",
+            "file_path", "error", "created_at", "updated_at"
+        )
+
+        for (expected in expectedColumns) {
+            assertTrue(columnNames.contains(expected), "download_jobs table should have column '$expected'")
+        }
+
+        val idColumn = columns.first { it["name"] == "id" }
+        assertEquals(1, idColumn["pk"], "id should be the primary key")
+
+        val userIdCol = columns.first { it["name"] == "user_id" }
+        assertEquals(1, userIdCol["notnull"], "user_id should be NOT NULL")
+
+        val bookMd5Col = columns.first { it["name"] == "book_md5" }
+        assertEquals(1, bookMd5Col["notnull"], "book_md5 should be NOT NULL")
+
+        val indexes = fetchTableIndexes("download_jobs")
+        val indexNames = indexes.map { it["name"] as String }
+
+        assertTrue(
+            indexNames.any { indexName ->
+                val cols = fetchIndexColumns(indexName)
+                cols.contains("user_id")
+            },
+            "download_jobs should have index on user_id"
+        )
+
+        assertTrue(
+            indexNames.any { indexName ->
+                val cols = fetchIndexColumns(indexName)
+                cols.contains("status")
+            },
+            "download_jobs should have index on status"
+        )
+    }
+
+    @Test
+    fun shouldEnforceForeignKeyFromDownloadJobsToUsers() {
+        val exception = assertThrows(Exception::class.java) {
+            dsl.execute(
+                """INSERT INTO download_jobs (user_id, book_md5, format, created_at, updated_at)
+                   VALUES (9999, 'nonexistent_md5', 'epub', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"""
+            )
+        }
+        assertNotNull(exception, "Inserting with non-existent user_id should fail due to FK constraint")
+    }
+
+    @Test
+    fun shouldEnforceForeignKeyFromDownloadJobsToBooks() {
+        dsl.execute(
+            """INSERT INTO users (email, password_hash, display_name, is_super_admin, force_password_change, created_at, updated_at)
+               VALUES ('fktest@example.com', 'hash', 'FK Test', 0, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"""
+        )
+        val userId = dsl.fetchOne("SELECT id FROM users WHERE email = 'fktest@example.com'")!!.get(0, Int::class.java)
+
+        val exception = assertThrows(Exception::class.java) {
+            dsl.execute(
+                """INSERT INTO download_jobs (user_id, book_md5, format, created_at, updated_at)
+                   VALUES ($userId, 'nonexistent_md5', 'epub', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"""
+            )
+        }
+        assertNotNull(exception, "Inserting with non-existent book_md5 should fail due to FK constraint")
+    }
+
+    @Test
     fun shouldEnforceForeignKeysOnUserLibrary() {
         val exception = assertThrows(Exception::class.java) {
             dsl.execute(

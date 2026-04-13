@@ -44,6 +44,7 @@ dependencies {
     implementation(libs.bcrypt)
 
     implementation(libs.jsoup)
+    implementation(libs.epub4j.core)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.impersonator.okhttp)
@@ -60,6 +61,7 @@ dependencies {
     jooqCodegenConfig(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
+    testImplementation(libs.ktor.client.mock)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.mockk)
@@ -145,7 +147,7 @@ val jooqCodegen by tasks.registering(JavaExec::class) {
                     <name>org.jooq.codegen.KotlinGenerator</name>
                     <database>
                         <name>org.jooq.meta.sqlite.SQLiteDatabase</name>
-                        <includes>users|refresh_tokens|password_reset_tokens|system_config|books|user_library|mirrors</includes>
+                        <includes>users|refresh_tokens|password_reset_tokens|system_config|books|user_library|mirrors|download_jobs</includes>
                         <excludes>DATABASECHANGELOG|DATABASECHANGELOGLOCK</excludes>
                     </database>
                     <generate>

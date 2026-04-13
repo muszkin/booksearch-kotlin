@@ -10,7 +10,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import org.slf4j.LoggerFactory
 
-class SolvearrClient(private val config: ScraperConfig) {
+class SolvearrClient(
+    private val config: ScraperConfig,
+    private val httpClientOverride: HttpClient? = null
+) {
 
     private val logger = LoggerFactory.getLogger(SolvearrClient::class.java)
 
@@ -19,7 +22,7 @@ class SolvearrClient(private val config: ScraperConfig) {
         isLenient = true
     }
 
-    private val httpClient = HttpClient(OkHttp) {
+    private val httpClient = httpClientOverride ?: HttpClient(OkHttp) {
         engine {
             config {
                 followRedirects(true)
@@ -28,6 +31,10 @@ class SolvearrClient(private val config: ScraperConfig) {
     }
 
     suspend fun fetchPage(url: String): String {
+        return fetchPageWithCookies(url).html
+    }
+
+    suspend fun fetchPageWithCookies(url: String): PageWithCookies {
         val requestBody = SolvearrRequest(
             cmd = "request.get",
             url = url,
@@ -53,7 +60,17 @@ class SolvearrClient(private val config: ScraperConfig) {
                 throw ScraperException("Solvearr returned status: ${solvearrResponse.status}")
             }
 
-            solvearrResponse.solution?.response ?: throw ScraperException("Empty response from Solvearr")
+            val solution = solvearrResponse.solution
+                ?: throw ScraperException("Empty response from Solvearr")
+
+            val html = solution.response.ifBlank {
+                throw ScraperException("Empty response from Solvearr")
+            }
+
+            val cookies = solution.cookies
+                .associate { it.name to it.value }
+
+            PageWithCookies(html = html, cookies = cookies)
 
         } catch (e: ScraperException) {
             throw e
@@ -71,6 +88,11 @@ class SolvearrClient(private val config: ScraperConfig) {
         private const val SOLVEARR_TIMEOUT_MS = 60000
     }
 }
+
+data class PageWithCookies(
+    val html: String,
+    val cookies: Map<String, String>
+)
 
 @Serializable
 private data class SolvearrRequest(
@@ -90,5 +112,17 @@ private data class SolvearrResponse(
 private data class SolvearrSolution(
     val url: String = "",
     val status: Int = 0,
-    val response: String = ""
+    val response: String = "",
+    val cookies: List<SolvearrCookie> = emptyList()
+)
+
+@Serializable
+private data class SolvearrCookie(
+    val name: String = "",
+    val value: String = "",
+    val domain: String = "",
+    val path: String = "",
+    val expiry: Long = 0,
+    val httpOnly: Boolean = false,
+    val secure: Boolean = false
 )

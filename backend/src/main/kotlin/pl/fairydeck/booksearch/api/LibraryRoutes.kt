@@ -7,6 +7,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import pl.fairydeck.booksearch.service.AddToLibraryRequest
 import pl.fairydeck.booksearch.service.LibraryService
+import java.io.File
 
 fun Route.libraryRoutes(libraryService: LibraryService) {
     authenticate("jwt") {
@@ -40,6 +41,33 @@ fun Route.libraryRoutes(libraryService: LibraryService) {
 
                 libraryService.removeFromLibrary(principal.userId, entryId)
                 call.respond(HttpStatusCode.OK, mapOf("message" to "Library entry removed successfully"))
+            }
+
+            get("/{id}/file") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+
+                val entryId = call.parameters["id"]?.toIntOrNull()
+                    ?: throw ValidationException("Invalid library entry ID")
+
+                val fileInfo = libraryService.getFileForEntry(principal.userId, entryId)
+                val file = File(fileInfo.absolutePath)
+
+                val contentType = when (fileInfo.format.lowercase()) {
+                    "epub" -> ContentType("application", "epub+zip")
+                    "mobi" -> ContentType("application", "x-mobipocket-ebook")
+                    "pdf" -> ContentType.Application.Pdf
+                    else -> ContentType.Application.OctetStream
+                }
+
+                call.response.header(
+                    HttpHeaders.ContentDisposition,
+                    ContentDisposition.Attachment.withParameter(
+                        ContentDisposition.Parameters.FileName,
+                        "${fileInfo.title}.${fileInfo.format}"
+                    ).toString()
+                )
+                call.respondFile(file)
             }
 
             get("/check") {

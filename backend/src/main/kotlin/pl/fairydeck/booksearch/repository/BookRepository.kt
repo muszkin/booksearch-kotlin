@@ -66,6 +66,18 @@ class BookRepository(private val dsl: DSLContext) {
         return results.ifEmpty { null }
     }
 
+    fun updateMetadata(md5: String, title: String?, author: String?, publisher: String?, description: String?) {
+        val update = dsl.update(BOOKS)
+            .set(BOOKS.INDEXED_AT, Instant.now().toString())
+
+        title?.let { update.set(BOOKS.TITLE, it) }
+        author?.let { update.set(BOOKS.AUTHOR, it) }
+        publisher?.let { update.set(BOOKS.PUBLISHER, it) }
+        description?.let { update.set(BOOKS.DESCRIPTION, it) }
+
+        update.where(BOOKS.MD5.eq(md5)).execute()
+    }
+
     fun searchByTitleOrAuthor(titles: List<String>, authors: List<String>): List<BooksRecord> {
         if (titles.isEmpty() && authors.isEmpty()) return emptyList()
 

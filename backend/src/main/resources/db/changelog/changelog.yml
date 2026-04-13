@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/migrations/006-create-user-library-table.sql
   - include:
       file: db/changelog/migrations/007-create-mirrors-table.sql
+  - include:
+      file: db/changelog/migrations/008-create-download-jobs-table.sql

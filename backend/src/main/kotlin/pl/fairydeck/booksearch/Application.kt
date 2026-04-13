@@ -26,6 +26,7 @@ import pl.fairydeck.booksearch.api.UserPrincipal
 import pl.fairydeck.booksearch.api.ValidationException
 import pl.fairydeck.booksearch.api.adminRoutes
 import pl.fairydeck.booksearch.api.authRoutes
+import pl.fairydeck.booksearch.api.downloadRoutes
 import pl.fairydeck.booksearch.api.healthRoutes
 import pl.fairydeck.booksearch.api.libraryRoutes
 import pl.fairydeck.booksearch.api.mirrorRoutes
@@ -44,8 +45,11 @@ import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
+import pl.fairydeck.booksearch.repository.DownloadJobRepository
 import pl.fairydeck.booksearch.service.AuthService
+import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
+import pl.fairydeck.booksearch.service.MetadataService
 import pl.fairydeck.booksearch.service.MirrorService
 import pl.fairydeck.booksearch.service.ScraperService
 import pl.fairydeck.booksearch.service.SearchService
@@ -104,9 +108,22 @@ fun Application.module() {
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
     val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, scraperConfig.cacheTtlDays)
-    val libraryService = LibraryService(userLibraryRepository, bookRepository)
+    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig)
+    val metadataService = MetadataService()
+    val downloadJobRepository = DownloadJobRepository(dsl)
+    val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
+    val downloadService = DownloadService(
+        downloadJobRepository = downloadJobRepository,
+        bookRepository = bookRepository,
+        userLibraryRepository = userLibraryRepository,
+        solvearrClient = solvearrClient,
+        impersonatorHttpClient = impersonatorHttpClient,
+        mirrorService = mirrorService,
+        scraperConfig = scraperConfig,
+        metadataService = metadataService
+    )
 
-    configureRouting(authService, mirrorService, searchService, libraryService)
+    configureRouting(authService, mirrorService, searchService, libraryService, downloadService)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -243,7 +260,7 @@ private fun Application.configureStatusPages() {
     }
 }
 
-private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService) {
+private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService, downloadService: DownloadService) {
     routing {
         healthRoutes()
         authRoutes(authService)
@@ -251,6 +268,7 @@ private fun Application.configureRouting(authService: AuthService, mirrorService
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
         libraryRoutes(libraryService)
+        downloadRoutes(downloadService)
         openApiRoutes()
 
         route("/api/{...}") {

@@ -90,6 +90,12 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             .and(USER_LIBRARY.USER_ID.eq(userId))
             .execute() > 0
 
+    fun findByIdAndUserId(id: Int, userId: Int): UserLibraryRecord? =
+        dsl.selectFrom(USER_LIBRARY)
+            .where(USER_LIBRARY.ID.eq(id))
+            .and(USER_LIBRARY.USER_ID.eq(userId))
+            .fetchOne()
+
     fun findByUserAndBookMd5s(userId: Int, md5s: List<String>): List<UserLibraryRecord> {
         if (md5s.isEmpty()) return emptyList()
 
@@ -97,6 +103,15 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             .where(USER_LIBRARY.USER_ID.eq(userId))
             .and(USER_LIBRARY.BOOK_MD5.`in`(md5s))
             .fetch()
+    }
+
+    fun updateFilePath(userId: Int, bookMd5: String, format: String, filePath: String) {
+        dsl.update(USER_LIBRARY)
+            .set(USER_LIBRARY.FILE_PATH, filePath)
+            .where(USER_LIBRARY.USER_ID.eq(userId))
+            .and(USER_LIBRARY.BOOK_MD5.eq(bookMd5))
+            .and(USER_LIBRARY.FORMAT.eq(format))
+            .execute()
     }
 
     fun findByUserAndTitles(userId: Int, titles: List<String>): List<UserLibraryRecord> {

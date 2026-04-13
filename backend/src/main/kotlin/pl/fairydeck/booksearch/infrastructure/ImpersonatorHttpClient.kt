@@ -85,6 +85,53 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         }
     }
 
+    suspend fun fetchBinary(url: String, cookies: Map<String, String>): ByteArray {
+        enforceRateLimit()
+
+        var lastException: Exception? = null
+        var delayMs = config.requestDelayMs
+
+        repeat(config.maxRetries + 1) { attempt ->
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val cookieHeader = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", config.userAgent)
+                        .header("Accept", "*/*")
+                        .header("Cookie", cookieHeader)
+                        .build()
+
+                    val response = httpClient.newCall(request).execute()
+
+                    if (!response.isSuccessful) {
+                        throw IOException("HTTP ${response.code} downloading $url")
+                    }
+
+                    response.body?.bytes()
+                        ?: throw IOException("Empty response body downloading $url")
+                }
+
+                lastRequestTime.set(System.currentTimeMillis())
+                return result
+
+            } catch (e: IOException) {
+                logger.error("Binary download failed on attempt {} for URL: {}", attempt + 1, url, e)
+                lastException = e
+                if (attempt < config.maxRetries) {
+                    delay(delayMs)
+                    delayMs = (delayMs * config.backoffMultiplier).toLong()
+                }
+            }
+        }
+
+        throw ScraperException(
+            "Failed to download binary from $url after ${config.maxRetries + 1} attempts",
+            lastException
+        )
+    }
+
     companion object {
         private val CHALLENGE_MARKERS = listOf(
             "DDoS protection by",

@@ -11,6 +11,10 @@ object HtmlParser {
     private const val AUTHOR_ICON_CLASS = "icon-[mdi--user-edit]"
     private const val PUBLISHER_ICON_CLASS = "icon-[mdi--company]"
     private const val FORMAT_INFO_SELECTOR = "div.font-semibold.text-sm"
+    private const val DOWNLOADS_PANEL_SELECTOR = "div#md5-panel-downloads"
+    private const val SLOW_DOWNLOAD_LINK_SELECTOR = "a[href*=slow_download]"
+    private const val NO_WAITLIST_MARKER = "no waitlist"
+    private const val MD5_PREFIX_LENGTH = 12
     private val MD5_PATTERN = Regex("/md5/([a-f0-9]{32})")
 
     fun parseSearchResults(html: String): List<ParsedBookEntry> {
@@ -83,6 +87,33 @@ object HtmlParser {
             fileSize = parts.getOrElse(2) { "" },
             year = parts.getOrElse(3) { "" }
         )
+    }
+
+    fun parseDetailPageDownloadLinks(html: String): List<DownloadLink> {
+        if (html.isBlank()) return emptyList()
+
+        val document = Jsoup.parse(html)
+        val panel = document.selectFirst(DOWNLOADS_PANEL_SELECTOR) ?: return emptyList()
+
+        val links = panel.select(SLOW_DOWNLOAD_LINK_SELECTOR).map { anchor ->
+            val url = anchor.attr("href")
+            val text = anchor.text()
+            val noWaitlist = text.contains(NO_WAITLIST_MARKER, ignoreCase = true)
+            DownloadLink(url = url, label = text.trim(), noWaitlist = noWaitlist)
+        }
+
+        return links.sortedByDescending { it.noWaitlist }
+    }
+
+    fun parseSlowDownloadPageFileUrl(html: String, md5: String): String? {
+        if (html.isBlank()) return null
+
+        val md5Prefix = md5.take(MD5_PREFIX_LENGTH)
+        val document = Jsoup.parse(html)
+
+        return document.select("a[href]")
+            .firstOrNull { it.attr("href").contains(md5Prefix) }
+            ?.attr("href")
     }
 
     private data class FormatInfo(
