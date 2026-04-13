@@ -43,15 +43,15 @@ class HtmlParserTest {
 
         assertEquals("epub", results[0].format)
         assertEquals("1.2MB", results[0].fileSize)
-        assertEquals("Polish", results[0].language)
+        assertEquals("Polish [pl]", results[0].language)
 
         assertEquals("pdf", results[1].format)
         assertEquals("3.5MB", results[1].fileSize)
-        assertEquals("English", results[1].language)
+        assertEquals("English [en]", results[1].language)
 
         assertEquals("mobi", results[2].format)
         assertEquals("850KB", results[2].fileSize)
-        assertEquals("English", results[2].language)
+        assertEquals("English [en]", results[2].language)
     }
 
     @Test
@@ -83,6 +83,6 @@ class HtmlParserTest {
         assertEquals("d4e5f6a7b8c9d0e1f2a3b4c5d6a1b2c3", minimalEntry.md5)
         assertEquals("Unknown Book Title", minimalEntry.title)
         assertEquals("epub", minimalEntry.format)
-        assertEquals("German", minimalEntry.language)
+        assertEquals("German [de]", minimalEntry.language)
     }
 }

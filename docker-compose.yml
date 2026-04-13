@@ -11,6 +11,7 @@ services:
       - ./data:/app/data
     depends_on:
       - mailpit
+      - flaresolverr
 
   mailpit:
     image: axllent/mailpit:latest
@@ -18,9 +19,8 @@ services:
       - "1025:1025"
       - "8025:8025"
 
-  # solvearr:
-  #   image: ghcr.io/flaresolverr/flaresolverr:latest
-  #   ports:
-  #     - "8191:8191"
-  #   environment:
-  #     - LOG_LEVEL=info
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info

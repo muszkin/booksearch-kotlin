@@ -2,13 +2,11 @@ package pl.fairydeck.booksearch.service
 
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.infrastructure.HtmlParser
-import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
 import pl.fairydeck.booksearch.infrastructure.ParsedBookEntry
 import pl.fairydeck.booksearch.infrastructure.ScraperException
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 
 class ScraperService(
-    private val impersonatorHttpClient: ImpersonatorHttpClient,
     private val solvearrClient: SolvearrClient,
     private val mirrorService: MirrorService
 ) {
@@ -25,7 +23,7 @@ class ScraperService(
             val url = buildSearchUrl(mirror, query, language, format, page)
             logger.info("Scraping page {} from: {}", page, url)
 
-            val html = fetchWithFallback(url)
+            val html = fetchPage(url)
             val parsed = HtmlParser.parseSearchResults(html)
 
             if (parsed.isEmpty()) {
@@ -40,19 +38,8 @@ class ScraperService(
         return allResults
     }
 
-    private suspend fun fetchWithFallback(url: String): String {
-        val result = impersonatorHttpClient.fetch(url)
-
-        if (ImpersonatorHttpClient.isChallengePage(result.body)) {
-            logger.warn("Challenge detected, falling back to Solvearr for: {}", url)
-            return solvearrClient.fetchPage(url)
-        }
-
-        if (result.statusCode !in 200..399) {
-            throw ScraperException("HTTP ${result.statusCode} from $url")
-        }
-
-        return result.body
+    private suspend fun fetchPage(url: String): String {
+        return solvearrClient.fetchPage(url)
     }
 
     private fun buildSearchUrl(mirror: String, query: String, language: String, format: String, page: Int): String {

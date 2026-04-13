@@ -98,11 +98,9 @@ fun Application.module() {
     val scraperConfig = ScraperConfig.fromEnvironment(environment)
     val mirrorConfig = MirrorConfig.fromEnvironment(environment)
     val mirrorRepository = MirrorRepository(dsl)
-    val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
-    val mirrorService = MirrorService(mirrorRepository, impersonatorHttpClient, mirrorConfig)
-
     val solvearrClient = SolvearrClient(scraperConfig)
-    val scraperService = ScraperService(impersonatorHttpClient, solvearrClient, mirrorService)
+    val mirrorService = MirrorService(mirrorRepository, solvearrClient, mirrorConfig)
+    val scraperService = ScraperService(solvearrClient, mirrorService)
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
     val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, scraperConfig.cacheTtlDays)

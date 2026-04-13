@@ -1,24 +1,21 @@
 package pl.fairydeck.booksearch.service
 
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import org.jooq.DSLContext
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
-import pl.fairydeck.booksearch.infrastructure.HttpResult
-import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
+import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 import pl.fairydeck.booksearch.repository.MirrorRepository
 
 class MirrorServiceTest {
 
     private lateinit var dsl: DSLContext
     private lateinit var mirrorRepository: MirrorRepository
-    private lateinit var httpClient: ImpersonatorHttpClient
+    private lateinit var solvearrClient: SolvearrClient
     private lateinit var mirrorConfig: MirrorConfig
     private lateinit var mirrorService: MirrorService
 
@@ -26,12 +23,12 @@ class MirrorServiceTest {
     fun setUp() {
         dsl = DatabaseFactory.createInMemory()
         mirrorRepository = MirrorRepository(dsl)
-        httpClient = mockk()
+        solvearrClient = mockk()
         mirrorConfig = MirrorConfig(
             domains = listOf("annas-archive.gd", "annas-archive.pk", "annas-archive.gl"),
             refreshIntervalHours = 24
         )
-        mirrorService = MirrorService(mirrorRepository, httpClient, mirrorConfig)
+        mirrorService = MirrorService(mirrorRepository, solvearrClient, mirrorConfig)
     }
 
     @Test
@@ -97,16 +94,12 @@ class MirrorServiceTest {
     }
 
     @Test
-    fun checkAllDomainsMarksUnreachableDomainsAsNotWorking() {
-        coEvery { httpClient.fetch("https://annas-archive.gd") } returns HttpResult(
-            body = "<html><title>Anna's Archive</title></html>",
-            statusCode = 200
-        )
-        coEvery { httpClient.fetch("https://annas-archive.pk") } throws RuntimeException("Connection refused")
-        coEvery { httpClient.fetch("https://annas-archive.gl") } returns HttpResult(
-            body = "DDoS protection by Cloudflare",
-            statusCode = 503
-        )
+    fun checkAllDomainsMarksWorkingAndUnreachableDomains() {
+        coEvery { solvearrClient.fetchPage("https://annas-archive.gd") } returns
+            "<html><head><title>Anna's Archive</title></head><body>" + "x".repeat(2000) + "</body></html>"
+        coEvery { solvearrClient.fetchPage("https://annas-archive.pk") } throws RuntimeException("Connection refused")
+        coEvery { solvearrClient.fetchPage("https://annas-archive.gl") } returns
+            "<html><head><title>Redirecting...</title></head><body>short</body></html>"
 
         kotlinx.coroutines.runBlocking { mirrorService.checkAllDomains() }
 

@@ -1,13 +1,13 @@
 package pl.fairydeck.booksearch.service
 
 import org.slf4j.LoggerFactory
-import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
+import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 import pl.fairydeck.booksearch.repository.MirrorRepository
 
 class MirrorService(
     private val mirrorRepository: MirrorRepository,
-    private val httpClient: ImpersonatorHttpClient,
+    private val solvearrClient: SolvearrClient,
     private val config: MirrorConfig
 ) {
 
@@ -21,14 +21,14 @@ class MirrorService(
             val baseUrl = "https://$domain"
             try {
                 val startTime = System.currentTimeMillis()
-                val result = httpClient.fetch(baseUrl)
+                val html = solvearrClient.fetchPage(baseUrl)
                 val responseTimeMs = (System.currentTimeMillis() - startTime).toInt()
 
-                val isWorking = result.statusCode in 200..399
-                    && !ImpersonatorHttpClient.isChallengePage(result.body)
+                val isWorking = html.isNotBlank() && html.length > 1000
+                    && !html.contains("Redirecting...")
 
                 mirrorRepository.upsert(domain, baseUrl, isWorking, responseTimeMs)
-                logger.info("Mirror {} checked: working={}, responseTime={}ms", domain, isWorking, responseTimeMs)
+                logger.info("Mirror {} checked: working={}, responseTime={}ms, htmlLength={}", domain, isWorking, responseTimeMs, html.length)
             } catch (e: Exception) {
                 logger.warn("Mirror {} unreachable: {}", domain, e.message)
                 mirrorRepository.upsert(domain, baseUrl, false, Int.MAX_VALUE)

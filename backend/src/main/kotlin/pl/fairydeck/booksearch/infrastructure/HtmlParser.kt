@@ -75,10 +75,12 @@ object HtmlParser {
         val infoDiv = entry.selectFirst(FORMAT_INFO_SELECTOR) ?: return FormatInfo()
         val parts = infoDiv.text().split("·").map { it.trim() }
 
+        // Actual format: "Polish [pl] · EPUB · 0.5MB · 2000 · Book (fiction) · /lgli/lgrs"
+        // Order: language · format · fileSize · year · type · source
         return FormatInfo(
-            format = parts.getOrElse(0) { "" }.lowercase(),
-            fileSize = parts.getOrElse(1) { "" },
-            language = parts.getOrElse(2) { "" },
+            language = parts.getOrElse(0) { "" },
+            format = parts.getOrElse(1) { "" }.lowercase(),
+            fileSize = parts.getOrElse(2) { "" },
             year = parts.getOrElse(3) { "" }
         )
     }

@@ -58,8 +58,8 @@ class BookRepository(private val dsl: DSLContext) {
 
         val results = dsl.selectFrom(BOOKS)
             .where(BOOKS.TITLE.likeIgnoreCase("%$query%"))
-            .and(BOOKS.LANGUAGE.equalIgnoreCase(language))
-            .and(BOOKS.FORMAT.equalIgnoreCase(format))
+            .and(BOOKS.LANGUAGE.likeIgnoreCase("%$language%"))
+            .and(BOOKS.FORMAT.likeIgnoreCase("%$format%"))
             .and(BOOKS.INDEXED_AT.greaterOrEqual(cutoff))
             .fetch()
 

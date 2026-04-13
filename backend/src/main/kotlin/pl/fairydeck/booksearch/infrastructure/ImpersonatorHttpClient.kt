@@ -1,10 +1,9 @@
 package pl.fairydeck.booksearch.infrastructure
 
-import com.github.zhkl0228.impersonator.ImpersonatorFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClientFactory
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.slf4j.LoggerFactory
 import java.io.IOException
@@ -14,9 +13,15 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
 
     private val logger = LoggerFactory.getLogger(ImpersonatorHttpClient::class.java)
 
-    private val httpClient = OkHttpClientFactory
-        .create(ImpersonatorFactory.macChrome())
-        .newHttpClient()
+    private val httpClient: OkHttpClient = try {
+        val api = com.github.zhkl0228.impersonator.ImpersonatorFactory.macChrome()
+        okhttp3.OkHttpClientFactory.create(api).newHttpClient().also {
+            logger.info("Using impersonator-okhttp with Chrome TLS fingerprint")
+        }
+    } catch (e: Exception) {
+        logger.warn("Impersonator TLS init failed ({}), falling back to standard OkHttp", e.message)
+        OkHttpClient.Builder().build()
+    }
 
     private val lastRequestTime = AtomicLong(0L)
 
@@ -32,6 +37,8 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
                     val request = Request.Builder()
                         .url(url)
                         .header("User-Agent", config.userAgent)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Language", "en-US,en;q=0.5")
                         .build()
 
                     val response = httpClient.newCall(request).execute()
