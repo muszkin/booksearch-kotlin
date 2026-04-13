@@ -325,6 +325,286 @@ paths:
         '401':
           description: Not authenticated
 
+  /api/convert/{libraryId}:
+    post:
+      operationId: startConversion
+      tags: [convert]
+      summary: Start format conversion for a library book
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: target
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [epub, mobi, pdf]
+          description: Target format for conversion
+      responses:
+        '202':
+          description: Conversion queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionStartedResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Library entry not found
+        '422':
+          description: Validation error (same format, unsupported format)
+
+  /api/convert/status/{jobId}:
+    get:
+      operationId: getConversionStatus
+      tags: [convert]
+      summary: Get conversion job status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conversion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionStatusResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Conversion job not found
+
+  /api/deliver/{libraryId}:
+    post:
+      operationId: deliverBook
+      tags: [deliver]
+      summary: Deliver a library book to a device via email
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: device
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [kindle, pocketbook]
+          description: Target device for delivery
+      responses:
+        '200':
+          description: Delivery result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Library entry not found
+        '422':
+          description: SMTP not configured for device
+
+  /api/deliveries:
+    get:
+      operationId: getUserDeliveries
+      tags: [deliver]
+      summary: Get all deliveries for authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryRecord'
+        '401':
+          description: Not authenticated
+
+  /api/deliveries/{bookMd5}:
+    get:
+      operationId: getDeliveriesForBook
+      tags: [deliver]
+      summary: Get deliveries for a specific book
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookMd5
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deliveries for this book
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryRecord'
+        '401':
+          description: Not authenticated
+
+  /api/settings:
+    get:
+      operationId: getAllSettings
+      tags: [settings]
+      summary: Get all device settings for authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All device settings (passwords redacted)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/DeviceSettingsResponse'
+        '401':
+          description: Not authenticated
+
+  /api/settings/{device}:
+    get:
+      operationId: getDeviceSettings
+      tags: [settings]
+      summary: Get SMTP settings for a specific device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: device
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [kindle, pocketbook]
+      responses:
+        '200':
+          description: Device settings (password redacted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceSettingsResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Settings not found for device
+        '422':
+          description: Invalid device name
+    put:
+      operationId: saveDeviceSettings
+      tags: [settings]
+      summary: Save SMTP settings for a specific device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: device
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [kindle, pocketbook]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceSettingsRequest'
+      responses:
+        '200':
+          description: Settings saved
+        '401':
+          description: Not authenticated
+        '422':
+          description: Invalid device name
+    delete:
+      operationId: deleteDeviceSettings
+      tags: [settings]
+      summary: Delete SMTP settings for a specific device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: device
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [kindle, pocketbook]
+      responses:
+        '200':
+          description: Settings deleted
+        '401':
+          description: Not authenticated
+        '422':
+          description: Invalid device name
+
+  /api/download/{md5}:
+    post:
+      operationId: startDownload
+      tags: [download]
+      summary: Start downloading a book by MD5
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: md5
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Download queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadStartedResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Book not found
+
+  /api/download/status/{jobId}:
+    get:
+      operationId: getDownloadStatus
+      tags: [download]
+      summary: Get download job status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Download job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadStatusResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Download job not found
+
   /api/admin/users/{id}/password:
     put:
       operationId: changeUserPassword
@@ -604,6 +884,131 @@ components:
           type: integer
         totalPages:
           type: integer
+
+    ConversionStartedResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+
+    ConversionStatusResponse:
+      type: object
+      required: [jobId, status, sourceFormat, targetFormat]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [queued, converting, completed, failed]
+        sourceFormat:
+          type: string
+        targetFormat:
+          type: string
+        error:
+          type: string
+          nullable: true
+
+    DeliveryResponse:
+      type: object
+      required: [deliveryId, status]
+      properties:
+        deliveryId:
+          type: integer
+        status:
+          type: string
+          enum: [sent, failed]
+        error:
+          type: string
+          nullable: true
+
+    DeliveryRecord:
+      type: object
+      required: [id, userId, bookMd5, deviceType, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        bookMd5:
+          type: string
+        deviceType:
+          type: string
+        status:
+          type: string
+        sentAt:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+
+    DeviceSettingsRequest:
+      type: object
+      required: [host, port, username, password, fromEmail, recipientEmail]
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        username:
+          type: string
+        password:
+          type: string
+        fromEmail:
+          type: string
+          format: email
+        recipientEmail:
+          type: string
+          format: email
+
+    DeviceSettingsResponse:
+      type: object
+      required: [host, port, username, password, fromEmail, recipientEmail]
+      properties:
+        host:
+          type: string
+        port:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+          description: Always redacted as ********
+        fromEmail:
+          type: string
+        recipientEmail:
+          type: string
+
+    DownloadStartedResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+
+    DownloadStatusResponse:
+      type: object
+      required: [jobId, status, progress]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+        progress:
+          type: integer
+        filePath:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
 
     UserResponse:
       type: object

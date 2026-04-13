@@ -188,6 +188,87 @@ class BookSearchMigrationsTest {
         assertNotNull(exception, "Inserting with non-existent user_id should fail due to FK constraint")
     }
 
+    @Test
+    fun shouldCreateUserSettingsTableWithUniqueConstraint() {
+        val columns = fetchTableColumns("user_settings")
+        val columnNames = columns.map { it["name"] as String }
+
+        val expectedColumns = listOf("id", "user_id", "setting_key", "setting_value", "created_at", "updated_at")
+        for (expected in expectedColumns) {
+            assertTrue(columnNames.contains(expected), "user_settings table should have column '$expected'")
+        }
+
+        val idColumn = columns.first { it["name"] == "id" }
+        assertEquals(1, idColumn["pk"], "id should be the primary key")
+
+        val userIdCol = columns.first { it["name"] == "user_id" }
+        assertEquals(1, userIdCol["notnull"], "user_id should be NOT NULL")
+
+        val settingKeyCol = columns.first { it["name"] == "setting_key" }
+        assertEquals(1, settingKeyCol["notnull"], "setting_key should be NOT NULL")
+
+        val indexes = fetchTableIndexes("user_settings")
+        val uniqueIndexColumns = indexes
+            .filter { it["unique"] == 1 }
+            .map { it["name"] as String }
+
+        assertTrue(
+            uniqueIndexColumns.any { indexName ->
+                val indexColumns = fetchIndexColumns(indexName)
+                indexColumns.containsAll(listOf("user_id", "setting_key"))
+            },
+            "user_settings should have UNIQUE constraint on (user_id, setting_key)"
+        )
+    }
+
+    @Test
+    fun shouldCreateDeliveriesTableWithAllColumnsAndForeignKey() {
+        val columns = fetchTableColumns("deliveries")
+        val columnNames = columns.map { it["name"] as String }
+
+        val expectedColumns = listOf(
+            "id", "user_id", "book_md5", "device_type", "status", "sent_at", "error", "created_at", "updated_at"
+        )
+
+        for (expected in expectedColumns) {
+            assertTrue(columnNames.contains(expected), "deliveries table should have column '$expected'")
+        }
+
+        val idColumn = columns.first { it["name"] == "id" }
+        assertEquals(1, idColumn["pk"], "id should be the primary key")
+
+        val userIdCol = columns.first { it["name"] == "user_id" }
+        assertEquals(1, userIdCol["notnull"], "user_id should be NOT NULL")
+
+        val bookMd5Col = columns.first { it["name"] == "book_md5" }
+        assertEquals(1, bookMd5Col["notnull"], "book_md5 should be NOT NULL")
+
+        val deviceTypeCol = columns.first { it["name"] == "device_type" }
+        assertEquals(1, deviceTypeCol["notnull"], "device_type should be NOT NULL")
+
+        val indexes = fetchTableIndexes("deliveries")
+        val indexNames = indexes.map { it["name"] as String }
+
+        assertTrue(
+            indexNames.any { indexName ->
+                val cols = fetchIndexColumns(indexName)
+                cols.contains("user_id")
+            },
+            "deliveries should have index on user_id"
+        )
+    }
+
+    @Test
+    fun shouldEnforceForeignKeyFromDeliveriesToUsers() {
+        val exception = assertThrows(Exception::class.java) {
+            dsl.execute(
+                """INSERT INTO deliveries (user_id, book_md5, device_type, status, created_at, updated_at)
+                   VALUES (9999, 'nonexistent_md5', 'kindle', 'pending', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"""
+            )
+        }
+        assertNotNull(exception, "Inserting with non-existent user_id should fail due to FK constraint")
+    }
+
     private fun fetchTableColumns(tableName: String): List<Map<String, Any?>> {
         val result = dsl.fetch("PRAGMA table_info($tableName)")
         return result.map { record ->

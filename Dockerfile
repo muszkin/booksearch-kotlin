@@ -18,9 +18,13 @@ COPY frontend/ frontend/
 RUN chmod +x gradlew \
     && ./gradlew :backend:buildFatJar --no-daemon
 
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:21-jre AS runtime
 
-RUN addgroup -S app && adduser -S app -G app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends calibre \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r app && useradd -r -g app app
 
 WORKDIR /app
 

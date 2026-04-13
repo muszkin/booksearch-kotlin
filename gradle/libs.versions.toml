@@ -15,6 +15,7 @@ jsoup = "1.21.1"
 impersonator = "v1.0.10"
 mockk = "1.14.3"
 epub4j = "4.2.1"
+jakarta-mail = "2.0.1"
 
 [libraries]
 ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
@@ -48,6 +49,7 @@ ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 impersonator-okhttp = { module = "com.github.zhkl0228.impersonator:impersonator-okhttp", version.ref = "impersonator" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 epub4j-core = { module = "io.documentnode:epub4j-core", version.ref = "epub4j" }
+jakarta-mail = { module = "com.sun.mail:jakarta.mail", version.ref = "jakarta-mail" }
 
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit-jupiter" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }

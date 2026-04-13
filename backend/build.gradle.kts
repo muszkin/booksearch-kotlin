@@ -45,6 +45,7 @@ dependencies {
 
     implementation(libs.jsoup)
     implementation(libs.epub4j.core)
+    implementation(libs.jakarta.mail)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.impersonator.okhttp)
@@ -147,7 +148,7 @@ val jooqCodegen by tasks.registering(JavaExec::class) {
                     <name>org.jooq.codegen.KotlinGenerator</name>
                     <database>
                         <name>org.jooq.meta.sqlite.SQLiteDatabase</name>
-                        <includes>users|refresh_tokens|password_reset_tokens|system_config|books|user_library|mirrors|download_jobs</includes>
+                        <includes>users|refresh_tokens|password_reset_tokens|system_config|books|user_library|mirrors|download_jobs|user_settings|deliveries</includes>
                         <excludes>DATABASECHANGELOG|DATABASECHANGELOGLOCK</excludes>
                     </database>
                     <generate>

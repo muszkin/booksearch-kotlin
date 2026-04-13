@@ -26,12 +26,16 @@ import pl.fairydeck.booksearch.api.UserPrincipal
 import pl.fairydeck.booksearch.api.ValidationException
 import pl.fairydeck.booksearch.api.adminRoutes
 import pl.fairydeck.booksearch.api.authRoutes
+import pl.fairydeck.booksearch.api.convertRoutes
+import pl.fairydeck.booksearch.api.deliverRoutes
 import pl.fairydeck.booksearch.api.downloadRoutes
 import pl.fairydeck.booksearch.api.healthRoutes
 import pl.fairydeck.booksearch.api.libraryRoutes
 import pl.fairydeck.booksearch.api.mirrorRoutes
 import pl.fairydeck.booksearch.api.openApiRoutes
 import pl.fairydeck.booksearch.api.searchRoutes
+import pl.fairydeck.booksearch.api.settingsRoutes
+import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
@@ -45,8 +49,12 @@ import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
+import pl.fairydeck.booksearch.repository.DeliveryRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
 import pl.fairydeck.booksearch.service.AuthService
+import pl.fairydeck.booksearch.service.CalibreWrapper
+import pl.fairydeck.booksearch.service.ConversionService
+import pl.fairydeck.booksearch.service.DeliveryService
 import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
 import pl.fairydeck.booksearch.service.MetadataService
@@ -107,6 +115,7 @@ fun Application.module() {
     val scraperService = ScraperService(solvearrClient, mirrorService)
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
+    val userSettingsRepository = UserSettingsRepository(dsl)
     val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, scraperConfig.cacheTtlDays)
     val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig)
     val metadataService = MetadataService()
@@ -122,8 +131,22 @@ fun Application.module() {
         scraperConfig = scraperConfig,
         metadataService = metadataService
     )
+    val calibreWrapper = CalibreWrapper()
+    val conversionService = ConversionService(
+        userLibraryRepository = userLibraryRepository,
+        calibreWrapper = calibreWrapper,
+        libraryService = libraryService,
+        scraperConfig = scraperConfig
+    )
+    val deliveryRepository = DeliveryRepository(dsl)
+    val deliveryService = DeliveryService(
+        deliveryRepository = deliveryRepository,
+        userSettingsRepository = userSettingsRepository,
+        libraryService = libraryService,
+        userLibraryRepository = userLibraryRepository
+    )
 
-    configureRouting(authService, mirrorService, searchService, libraryService, downloadService)
+    configureRouting(authService, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -260,7 +283,7 @@ private fun Application.configureStatusPages() {
     }
 }
 
-private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService, downloadService: DownloadService) {
+private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService, downloadService: DownloadService, conversionService: ConversionService, userSettingsRepository: UserSettingsRepository, deliveryService: DeliveryService) {
     routing {
         healthRoutes()
         authRoutes(authService)
@@ -269,6 +292,9 @@ private fun Application.configureRouting(authService: AuthService, mirrorService
         searchRoutes(searchService)
         libraryRoutes(libraryService)
         downloadRoutes(downloadService)
+        convertRoutes(conversionService)
+        deliverRoutes(deliveryService)
+        settingsRoutes(userSettingsRepository)
         openApiRoutes()
 
         route("/api/{...}") {

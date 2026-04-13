@@ -40,7 +40,9 @@ class BuildPipelineTest {
             "pl.fairydeck.booksearch.jooq.generated.tables.SystemConfig",
             "pl.fairydeck.booksearch.jooq.generated.tables.Books",
             "pl.fairydeck.booksearch.jooq.generated.tables.UserLibrary",
-            "pl.fairydeck.booksearch.jooq.generated.tables.Mirrors"
+            "pl.fairydeck.booksearch.jooq.generated.tables.Mirrors",
+            "pl.fairydeck.booksearch.jooq.generated.tables.UserSettings",
+            "pl.fairydeck.booksearch.jooq.generated.tables.Deliveries"
         )
 
         for (className in tableClasses) {
@@ -83,6 +85,8 @@ class BuildPipelineTest {
             assertTrue(tables.contains("books"), "books table should exist")
             assertTrue(tables.contains("user_library"), "user_library table should exist")
             assertTrue(tables.contains("mirrors"), "mirrors table should exist")
+            assertTrue(tables.contains("user_settings"), "user_settings table should exist")
+            assertTrue(tables.contains("deliveries"), "deliveries table should exist")
 
             val configRs = statement.executeQuery(
                 "SELECT value FROM system_config WHERE key = 'registration_enabled'"
