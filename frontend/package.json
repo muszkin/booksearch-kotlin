@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "generate:api": "openapi --input ../backend/src/main/resources/openapi/api.yaml --output src/api/generated --client axios"
   },
   "dependencies": {
     "axios": "^1.15.0",
@@ -19,7 +20,9 @@
     "@tailwindcss/vite": "^4.2.2",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vue/test-utils": "^2.4.6",
+    "form-data": "^4.0.5",
     "jsdom": "^29.0.2",
+    "openapi-typescript-codegen": "^0.30.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.8",

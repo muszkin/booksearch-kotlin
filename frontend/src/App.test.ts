@@ -1,14 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createMemoryHistory } from 'vue-router'
 import App from './App.vue'
-import HomeView from './views/HomeView.vue'
 
 describe('App', () => {
   it('renders router-view that displays routed components', async () => {
     const router = createRouter({
-      history: createWebHistory(),
-      routes: [{ path: '/', component: HomeView }],
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div>Test Page</div>' } }],
     })
 
     router.push('/')
@@ -20,6 +19,6 @@ describe('App', () => {
       },
     })
 
-    expect(wrapper.html()).toContain('BookSearch v2')
+    expect(wrapper.html()).toContain('Test Page')
   })
 })

@@ -3,6 +3,19 @@ import apiClient from './client'
 
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localStorage.getItem !== 'function') {
+  const store: Record<string, string> = {}
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => { store[key] = value },
+      removeItem: (key: string) => { delete store[key] },
+      clear: () => { Object.keys(store).forEach((k) => delete store[k]) },
+    },
+    writable: true,
+  })
+}
+
 describe('apiClient', () => {
   it('attaches X-Request-Id header via request interceptor', async () => {
     const interceptors = apiClient.interceptors.request as any

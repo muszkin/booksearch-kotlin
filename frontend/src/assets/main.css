@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+@theme {
+  --color-surface: var(--color-zinc-800);
+  --color-surface-alt: var(--color-zinc-700);
+  --color-accent: var(--color-violet-400);
+  --color-accent-hover: var(--color-violet-300);
+}
+
+body {
+  @apply bg-zinc-900 text-zinc-100 antialiased;
+}
