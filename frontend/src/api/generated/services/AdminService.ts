@@ -30,6 +30,20 @@ export class AdminService {
         });
     }
     /**
+     * List all users (super-admin)
+     * @returns UserResponse List of all users
+     * @throws ApiError
+     */
+    public static listUsers(): CancelablePromise<Array<UserResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/users',
+            errors: {
+                403: `Not authorized`,
+            },
+        });
+    }
+    /**
      * Create a new user (super-admin)
      * @param requestBody
      * @returns UserResponse User created

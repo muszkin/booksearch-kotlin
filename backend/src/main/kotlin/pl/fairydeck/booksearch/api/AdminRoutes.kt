@@ -20,6 +20,12 @@ fun Route.adminRoutes(authService: AuthService) {
                 call.respond(HttpStatusCode.OK, mapOf("message" to "Registration toggled successfully"))
             }
 
+            get("/users") {
+                requireSuperAdmin(call)
+                val users = authService.listUsers()
+                call.respond(HttpStatusCode.OK, users)
+            }
+
             post("/users") {
                 requireSuperAdmin(call)
                 val request = call.receive<CreateUserRequest>()

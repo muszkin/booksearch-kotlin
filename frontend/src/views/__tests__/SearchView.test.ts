@@ -3,7 +3,6 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import SearchView from '../SearchView.vue'
 import { useSearchStore } from '@/stores/search'
-import { useSelectionStore } from '@/stores/selection'
 import { BookResult } from '@/api/generated'
 
 vi.mock('@/api/generated', async (importOriginal) => {

@@ -57,4 +57,9 @@ class UserRepository(private val dsl: DSLContext) {
         dsl.selectCount()
             .from(USERS)
             .fetchOne(0, Long::class.java) ?: 0L
+
+    fun findAll(): List<UsersRecord> =
+        dsl.selectFrom(USERS)
+            .orderBy(USERS.CREATED_AT.desc())
+            .fetch()
 }

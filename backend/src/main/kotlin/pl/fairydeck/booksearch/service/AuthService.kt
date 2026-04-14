@@ -162,6 +162,9 @@ class AuthService(
         return toUserResponse(user)
     }
 
+    fun listUsers(): List<UserResponse> =
+        userRepository.findAll().map { toUserResponse(it) }
+
     fun changeUserPassword(targetUserId: Int, newPassword: String) {
         validatePassword(newPassword)
 

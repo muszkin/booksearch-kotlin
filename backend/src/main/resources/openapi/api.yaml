@@ -154,6 +154,23 @@ paths:
           description: Not authorized
 
   /api/admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List all users (super-admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of all users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+        '403':
+          description: Not authorized
     post:
       operationId: createUser
       tags: [admin]
