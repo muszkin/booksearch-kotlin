@@ -13,5 +13,9 @@ export function setupRouteGuards(router: Router) {
     if (to.meta.guest && authStore.isAuthenticated) {
       return { name: 'search' }
     }
+
+    if (to.meta.requiresSuperAdmin && !authStore.user?.isSuperAdmin) {
+      return { name: 'settings' }
+    }
   })
 }

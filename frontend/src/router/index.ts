@@ -6,6 +6,7 @@ import RegisterView from '@/views/RegisterView.vue'
 import SearchView from '@/views/SearchView.vue'
 import LibraryView from '@/views/LibraryView.vue'
 import SettingsView from '@/views/SettingsView.vue'
+import AdminView from '@/views/AdminView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -45,6 +46,12 @@ const router = createRouter({
           path: 'settings',
           name: 'settings',
           component: SettingsView,
+        },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: AdminView,
+          meta: { requiresSuperAdmin: true },
         },
       ],
     },

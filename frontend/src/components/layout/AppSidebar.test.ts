@@ -1,8 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createRouter, createWebHistory } from 'vue-router'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
 import AppSidebar from './AppSidebar.vue'
+import { useAuthStore } from '@/stores/auth'
+
+vi.mock('@/api/client', () => {
+  const interceptors = {
+    request: { use: vi.fn(), eject: vi.fn() },
+    response: { use: vi.fn(), eject: vi.fn() },
+  }
+  return {
+    default: {
+      post: vi.fn(),
+      interceptors,
+      defaults: { headers: { common: {} } },
+    },
+  }
+})
 
 function createTestRouter(currentPath = '/search') {
   const router = createRouter({
@@ -11,6 +26,7 @@ function createTestRouter(currentPath = '/search') {
       { path: '/search', name: 'search', component: { template: '<div />' } },
       { path: '/library', name: 'library', component: { template: '<div />' } },
       { path: '/settings', name: 'settings', component: { template: '<div />' } },
+      { path: '/admin', name: 'admin', component: { template: '<div />' } },
     ],
   })
   router.push(currentPath)
@@ -18,12 +34,17 @@ function createTestRouter(currentPath = '/search') {
 }
 
 describe('AppSidebar', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
   it('renders nav element with Search, Library, and Settings links', async () => {
     const router = createTestRouter()
     await router.isReady()
 
     const wrapper = mount(AppSidebar, {
-      global: { plugins: [router, createPinia()] },
+      global: { plugins: [router] },
     })
 
     const nav = wrapper.find('nav')
@@ -41,11 +62,59 @@ describe('AppSidebar', () => {
     await router.isReady()
 
     const wrapper = mount(AppSidebar, {
-      global: { plugins: [router, createPinia()] },
+      global: { plugins: [router] },
     })
 
     const activeLink = wrapper.find('a[aria-current="page"]')
     expect(activeLink.exists()).toBe(true)
     expect(activeLink.text()).toBe('Library')
+  })
+
+  it('shows Admin nav item when user isSuperAdmin is true', async () => {
+    const router = createTestRouter()
+    await router.isReady()
+
+    const authStore = useAuthStore()
+    authStore.user = {
+      id: 1,
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      isSuperAdmin: true,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    const wrapper = mount(AppSidebar, {
+      global: { plugins: [router] },
+    })
+
+    const links = wrapper.findAll('a')
+    const linkTexts = links.map((l) => l.text())
+    expect(linkTexts).toContain('Admin')
+  })
+
+  it('hides Admin nav item when user isSuperAdmin is false', async () => {
+    const router = createTestRouter()
+    await router.isReady()
+
+    const authStore = useAuthStore()
+    authStore.user = {
+      id: 2,
+      email: 'user@example.com',
+      displayName: 'User',
+      isSuperAdmin: false,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    const wrapper = mount(AppSidebar, {
+      global: { plugins: [router] },
+    })
+
+    const links = wrapper.findAll('a')
+    const linkTexts = links.map((l) => l.text())
+    expect(linkTexts).not.toContain('Admin')
   })
 })

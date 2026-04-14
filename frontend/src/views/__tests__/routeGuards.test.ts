@@ -26,6 +26,8 @@ function createGuardedRouter() {
       { path: '/login', name: 'login', meta: { guest: true }, component: { template: '<div>Login</div>' } },
       { path: '/register', name: 'register', meta: { guest: true }, component: { template: '<div>Register</div>' } },
       { path: '/search', name: 'search', meta: { requiresAuth: true }, component: { template: '<div>Search</div>' } },
+      { path: '/settings', name: 'settings', meta: { requiresAuth: true }, component: { template: '<div>Settings</div>' } },
+      { path: '/admin', name: 'admin', meta: { requiresAuth: true, requiresSuperAdmin: true }, component: { template: '<div>Admin</div>' } },
     ],
   })
 
@@ -60,5 +62,47 @@ describe('Route guards', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('search')
+  })
+
+  it('redirects non-super-admin from /admin to /settings', async () => {
+    const router = createGuardedRouter()
+    const authStore = useAuthStore()
+    authStore.restoreSession = vi.fn()
+    authStore.accessToken = 'valid-token'
+    authStore.user = {
+      id: 2,
+      email: 'user@example.com',
+      displayName: 'User',
+      isSuperAdmin: false,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    await router.push('/admin')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('settings')
+  })
+
+  it('allows super-admin to access /admin', async () => {
+    const router = createGuardedRouter()
+    const authStore = useAuthStore()
+    authStore.restoreSession = vi.fn()
+    authStore.accessToken = 'valid-token'
+    authStore.user = {
+      id: 1,
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      isSuperAdmin: true,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+
+    await router.push('/admin')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('admin')
   })
 })
