@@ -1,26 +1,64 @@
+# BookSearch v2 — Production Docker Compose
+#
+# Usage:
+#   cp .env.example .env   # configure environment variables
+#   docker compose up -d   # start all services
+#
+# Services:
+#   backend       — Kotlin/Ktor application serving API + SPA (port 8080)
+#   flaresolverr  — headless browser proxy for Cloudflare bypass (port 8191)
+#   mailpit       — development SMTP server + web UI (ports 1025, 8025)
+
 services:
+  # Main application — backend API + embedded Vue.js frontend
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    image: ghcr.io/muszkin/booksearch-kotlin:latest
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:8080"
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
+      - booksearch-data:/app/data
     depends_on:
-      - mailpit
-      - flaresolverr
+      flaresolverr:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
+  # FlareSolverr — proxies requests through a headless browser to bypass
+  # Cloudflare challenges. Required for all Anna's Archive interactions.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8191/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Mailpit — local SMTP catch-all for development.
+  # In production replace with a real SMTP server and remove this service.
+  # Web UI: http://localhost:8025
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"
-      - "8025:8025"
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
     restart: unless-stopped
-    environment:
-      - LOG_LEVEL=info
+
+volumes:
+  booksearch-data:
+    driver: local
