@@ -48,8 +48,8 @@ vi.mock('@/api/client', () => {
   }
 })
 
-function rejecting(message: string): CancelablePromise<never> {
-  return new CancelablePromise((_resolve, reject) => reject(new Error(message)))
+function rejecting<T = any>(message: string): CancelablePromise<T> {
+  return new CancelablePromise<T>((_resolve, reject) => reject(new Error(message)))
 }
 
 function resolving<T>(value: T): CancelablePromise<T> {
