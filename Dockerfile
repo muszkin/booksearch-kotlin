@@ -24,15 +24,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends calibre \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -r app && useradd -r -g app app
-
 WORKDIR /app
 
 COPY --from=builder /build/backend/build/libs/booksearch-v2.jar app.jar
 
-RUN mkdir -p /app/data && chown -R app:app /app
-
-USER app
+RUN mkdir -p /app/data/library
 
 EXPOSE 8080
 
