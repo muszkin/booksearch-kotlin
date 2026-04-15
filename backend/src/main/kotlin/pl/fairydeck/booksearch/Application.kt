@@ -34,23 +34,28 @@ import pl.fairydeck.booksearch.api.libraryRoutes
 import pl.fairydeck.booksearch.api.mirrorRoutes
 import pl.fairydeck.booksearch.api.openApiRoutes
 import pl.fairydeck.booksearch.api.searchRoutes
+import pl.fairydeck.booksearch.api.logRoutes
 import pl.fairydeck.booksearch.api.settingsRoutes
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
+import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
+import pl.fairydeck.booksearch.repository.ActivityLogRepository
 import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.MirrorRepository
 import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
+import pl.fairydeck.booksearch.repository.RequestLogRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
 import pl.fairydeck.booksearch.repository.DeliveryRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
+import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.AuthService
 import pl.fairydeck.booksearch.service.CalibreWrapper
 import pl.fairydeck.booksearch.service.ConversionService
@@ -76,6 +81,9 @@ fun Application.module() {
     configureStatusPages()
 
     val dsl = configureDatabase()
+
+    val requestLogRepository = RequestLogRepository(dsl)
+    attributes.put(requestLogRepositoryKey, requestLogRepository)
 
     val jwtSecret = environment.config.property("jwt.secret").getString()
     val jwtIssuer = environment.config.property("jwt.issuer").getString()
@@ -146,7 +154,10 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    configureRouting(authService, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService)
+    val activityLogRepository = ActivityLogRepository(dsl)
+    val activityLogService = ActivityLogService(activityLogRepository)
+
+    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -283,18 +294,33 @@ private fun Application.configureStatusPages() {
     }
 }
 
-private fun Application.configureRouting(authService: AuthService, mirrorService: MirrorService, searchService: SearchService, libraryService: LibraryService, downloadService: DownloadService, conversionService: ConversionService, userSettingsRepository: UserSettingsRepository, deliveryService: DeliveryService) {
+private fun Application.configureRouting(
+    authService: AuthService,
+    systemConfigRepository: SystemConfigRepository,
+    mirrorService: MirrorService,
+    searchService: SearchService,
+    libraryService: LibraryService,
+    downloadService: DownloadService,
+    conversionService: ConversionService,
+    userSettingsRepository: UserSettingsRepository,
+    deliveryService: DeliveryService,
+    activityLogService: ActivityLogService,
+    downloadJobRepository: DownloadJobRepository,
+    activityLogRepository: ActivityLogRepository,
+    requestLogRepository: RequestLogRepository
+) {
     routing {
         healthRoutes()
-        authRoutes(authService)
+        authRoutes(authService, systemConfigRepository)
         adminRoutes(authService)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
-        libraryRoutes(libraryService)
-        downloadRoutes(downloadService)
-        convertRoutes(conversionService)
-        deliverRoutes(deliveryService)
-        settingsRoutes(userSettingsRepository)
+        libraryRoutes(libraryService, activityLogService)
+        downloadRoutes(downloadService, downloadJobRepository, activityLogService)
+        convertRoutes(conversionService, activityLogService)
+        deliverRoutes(deliveryService, activityLogService)
+        settingsRoutes(userSettingsRepository, activityLogService)
+        logRoutes(activityLogRepository, requestLogRepository)
         openApiRoutes()
 
         route("/api/{...}") {

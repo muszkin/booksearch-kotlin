@@ -316,6 +316,32 @@ paths:
         '404':
           description: Entry not found
 
+  /api/library/batch-download:
+    post:
+      operationId: batchDownload
+      tags: [library]
+      summary: Download multiple library books as a ZIP archive
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchDownloadRequest'
+      responses:
+        '200':
+          description: ZIP file stream
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Not authenticated
+        '422':
+          description: Empty ID list
+
   /api/library/check:
     get:
       operationId: checkOwnership
@@ -572,6 +598,79 @@ paths:
         '422':
           description: Invalid device name
 
+  /api/auth/registration-status:
+    get:
+      operationId: getRegistrationStatus
+      tags: [auth]
+      summary: Check if user registration is enabled (public)
+      responses:
+        '200':
+          description: Registration status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationStatusResponse'
+
+  /api/download/jobs:
+    get:
+      operationId: getDownloadJobs
+      tags: [download]
+      summary: Get paginated list of download jobs for authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filter by job status
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Paginated download job list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadJobListResponse'
+        '401':
+          description: Not authenticated
+
+  /api/download/{jobId}/cancel:
+    patch:
+      operationId: cancelDownloadJob
+      tags: [download]
+      summary: Cancel a queued or active download job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelJobResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Job not found or not owned by user
+        '422':
+          description: Job cannot be cancelled (not in cancellable state)
+
   /api/download/{md5}:
     post:
       operationId: startDownload
@@ -621,6 +720,91 @@ paths:
           description: Not authenticated
         '404':
           description: Download job not found
+
+  /api/logs/activity:
+    get:
+      operationId: getActivityLogs
+      tags: [logs]
+      summary: Get activity logs for authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: type
+          in: query
+          schema:
+            type: string
+          description: Filter by action type
+      responses:
+        '200':
+          description: Paginated activity log list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityLogListResponse'
+        '401':
+          description: Not authenticated
+
+  /api/logs/requests:
+    get:
+      operationId: getRequestLogs
+      tags: [logs]
+      summary: Get request logs (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: method
+          in: query
+          schema:
+            type: string
+        - name: path
+          in: query
+          schema:
+            type: string
+        - name: statusCode
+          in: query
+          schema:
+            type: integer
+        - name: from
+          in: query
+          schema:
+            type: string
+          description: ISO-8601 date-time filter (from)
+        - name: to
+          in: query
+          schema:
+            type: string
+          description: ISO-8601 date-time filter (to)
+      responses:
+        '200':
+          description: Paginated request log list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestLogListResponse'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not authorized (admin only)
 
   /api/admin/users/{id}/password:
     put:
@@ -1026,6 +1210,134 @@ components:
         error:
           type: string
           nullable: true
+
+    RegistrationStatusResponse:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    DownloadJobItem:
+      type: object
+      required: [jobId, bookMd5, format, status, progress, createdAt, updatedAt]
+      properties:
+        jobId:
+          type: integer
+        bookMd5:
+          type: string
+        format:
+          type: string
+        status:
+          type: string
+        progress:
+          type: integer
+        filePath:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    DownloadJobListResponse:
+      type: object
+      required: [items, totalCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadJobItem'
+        totalCount:
+          type: integer
+          format: int64
+
+    CancelJobResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+
+    BatchDownloadRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+
+    ActivityLogItem:
+      type: object
+      required: [id, actionType, entityType, createdAt]
+      properties:
+        id:
+          type: integer
+        actionType:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+          nullable: true
+        details:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+
+    ActivityLogListResponse:
+      type: object
+      required: [items, totalCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivityLogItem'
+        totalCount:
+          type: integer
+          format: int64
+
+    RequestLogItem:
+      type: object
+      required: [id, method, path, statusCode, durationMs, createdAt]
+      properties:
+        id:
+          type: integer
+        method:
+          type: string
+        path:
+          type: string
+        statusCode:
+          type: integer
+        durationMs:
+          type: integer
+        requestId:
+          type: string
+          nullable: true
+        userId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+
+    RequestLogListResponse:
+      type: object
+      required: [items, totalCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RequestLogItem'
+        totalCount:
+          type: integer
+          format: int64
 
     UserResponse:
       type: object

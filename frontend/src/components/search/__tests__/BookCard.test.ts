@@ -61,7 +61,7 @@ describe('BookCard', () => {
     expect(noneClasses).not.toContain('border-l-sky-400')
   })
 
-  it('emits toggle-select on checkbox change, download on download click, add-to-library on add click', async () => {
+  it('emits toggle-select on checkbox change and download on download click', async () => {
     const wrapper = mountCard()
 
     const checkbox = wrapper.find('input[type="checkbox"]')
@@ -71,9 +71,5 @@ describe('BookCard', () => {
     const downloadBtn = wrapper.find('[data-testid="download-btn"]')
     await downloadBtn.trigger('click')
     expect(wrapper.emitted('download')).toBeTruthy()
-
-    const libraryBtn = wrapper.find('[data-testid="add-library-btn"]')
-    await libraryBtn.trigger('click')
-    expect(wrapper.emitted('add-to-library')).toBeTruthy()
   })
 })

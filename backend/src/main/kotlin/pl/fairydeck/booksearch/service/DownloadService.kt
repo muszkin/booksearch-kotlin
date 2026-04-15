@@ -37,6 +37,7 @@ class DownloadService(
             ?: throw NotFoundException("Book not found with md5: $bookMd5")
 
         val format = book.format ?: "epub"
+        userLibraryRepository.findOrCreate(userId, bookMd5, format)
         val jobId = downloadJobRepository.create(userId, bookMd5, format)
 
         logger.info("Created download job {} for user {} book {}", jobId, userId, bookMd5)

@@ -7,6 +7,8 @@ import FormatBadge from './FormatBadge.vue'
 interface Props {
   books: BookResult[]
   open: boolean
+  kindleEnabled?: boolean
+  pocketbookEnabled?: boolean
 }
 
 const props = defineProps<Props>()
@@ -15,7 +17,8 @@ const emit = defineEmits<{
   remove: [md5: string]
   clear: []
   'download-all': []
-  'add-all-to-library': []
+  'kindle-all': []
+  'pocketbook-all': []
 }>()
 
 const panelRef = ref<HTMLElement | null>(null)
@@ -106,12 +109,22 @@ function handleKeydown(event: KeyboardEvent) {
           Download All
         </BaseButton>
         <BaseButton
-          data-testid="add-all-library-btn"
-          variant="secondary"
+          v-if="props.kindleEnabled"
+          data-testid="kindle-all-btn"
+          variant="ghost"
           class="w-full"
-          @click="emit('add-all-to-library')"
+          @click="emit('kindle-all')"
         >
-          Add All to Library
+          To Kindle All
+        </BaseButton>
+        <BaseButton
+          v-if="props.pocketbookEnabled"
+          data-testid="pocketbook-all-btn"
+          variant="ghost"
+          class="w-full"
+          @click="emit('pocketbook-all')"
+        >
+          To PocketBook All
         </BaseButton>
       </footer>
     </aside>
@@ -197,12 +210,22 @@ function handleKeydown(event: KeyboardEvent) {
               Download All
             </BaseButton>
             <BaseButton
-              data-testid="add-all-library-btn"
-              variant="secondary"
+              v-if="props.kindleEnabled"
+              data-testid="kindle-all-btn"
+              variant="ghost"
               class="w-full"
-              @click="emit('add-all-to-library')"
+              @click="emit('kindle-all')"
             >
-              Add All to Library
+              To Kindle All
+            </BaseButton>
+            <BaseButton
+              v-if="props.pocketbookEnabled"
+              data-testid="pocketbook-all-btn"
+              variant="ghost"
+              class="w-full"
+              @click="emit('pocketbook-all')"
+            >
+              To PocketBook All
             </BaseButton>
           </footer>
         </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, reactive, watch, computed, onMounted } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import SearchToolbar from '@/components/search/SearchToolbar.vue'
 import BookCard from '@/components/search/BookCard.vue'
@@ -11,12 +11,23 @@ import AlertMessage from '@/components/base/AlertMessage.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import { useSearchStore } from '@/stores/search'
 import { useSelectionStore } from '@/stores/selection'
-import { DownloadService, LibraryService } from '@/api/generated'
+import { useSettingsStore } from '@/stores/settings'
+import { DownloadService } from '@/api/generated'
 
 const searchStore = useSearchStore()
 const selectionStore = useSelectionStore()
+const settingsStore = useSettingsStore()
 
 const drawerOpen = ref(false)
+const downloadLoading = reactive(new Map<string, boolean>())
+const downloadErrors = reactive(new Map<string, string>())
+
+const kindleEnabled = computed(() => settingsStore.isConfigured('kindle'))
+const pocketbookEnabled = computed(() => settingsStore.isConfigured('pocketbook'))
+
+onMounted(() => {
+  settingsStore.fetchSettings()
+})
 
 watch(
   () => selectionStore.count,
@@ -38,12 +49,53 @@ function handleToggleSelect(book: Parameters<typeof selectionStore.toggle>[0]) {
   selectionStore.toggle(book)
 }
 
-function handleDownload(md5: string) {
-  DownloadService.startDownload(md5)
+async function handleDownload(md5: string) {
+  downloadLoading.set(md5, true)
+  downloadErrors.delete(md5)
+
+  try {
+    await DownloadService.startDownload(md5)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Download failed'
+    downloadErrors.set(md5, message)
+  } finally {
+    downloadLoading.set(md5, false)
+  }
 }
 
-function handleAddToLibrary(md5: string, format: string) {
-  LibraryService.addToLibrary({ bookMd5: md5, format })
+async function handleDeliver(md5: string, device: string) {
+  downloadLoading.set(md5, true)
+  downloadErrors.delete(md5)
+
+  try {
+    const started = await DownloadService.startDownload(md5)
+
+    let status = await DownloadService.getDownloadStatus(started.jobId)
+    while (status.status !== 'completed' && status.status !== 'failed') {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      status = await DownloadService.getDownloadStatus(started.jobId)
+    }
+
+    if (status.status === 'failed') {
+      downloadErrors.set(md5, 'Download failed before delivery')
+      return
+    }
+
+    const { LibraryService, DeliverService } = await import('@/api/generated')
+    const library = await LibraryService.getUserLibrary(1, 100)
+    const libraryBook = library.items.find((b) => b.bookMd5 === md5)
+    if (libraryBook) {
+      await DeliverService.deliverBook(libraryBook.id, device as 'kindle' | 'pocketbook')
+    } else {
+      downloadErrors.set(md5, 'Book not found in library after download')
+      return
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Delivery failed'
+    downloadErrors.set(md5, message)
+  } finally {
+    downloadLoading.set(md5, false)
+  }
 }
 
 function handleDrawerRemove(md5: string) {
@@ -57,13 +109,19 @@ function handleDrawerClear() {
 
 function handleDownloadAll() {
   for (const book of selectionStore.selectedBooks) {
-    DownloadService.startDownload(book.md5)
+    handleDownload(book.md5)
   }
 }
 
-function handleAddAllToLibrary() {
+async function handleKindleAll() {
   for (const book of selectionStore.selectedBooks) {
-    LibraryService.addToLibrary({ bookMd5: book.md5, format: book.format })
+    await handleDeliver(book.md5, 'kindle')
+  }
+}
+
+async function handlePocketbookAll() {
+  for (const book of selectionStore.selectedBooks) {
+    await handleDeliver(book.md5, 'pocketbook')
   }
 }
 
@@ -118,15 +176,24 @@ function handleDrawerClose() {
         {{ searchStore.totalResults }} results found
       </p>
       <div class="flex flex-col gap-4">
-        <BookCard
-          v-for="book in searchStore.results"
-          :key="book.md5"
-          :book="book"
-          :selected="selectionStore.isSelected(book.md5)"
-          @toggle-select="handleToggleSelect(book)"
-          @download="handleDownload(book.md5)"
-          @add-to-library="handleAddToLibrary(book.md5, book.format)"
-        />
+        <div v-for="book in searchStore.results" :key="book.md5">
+          <AlertMessage
+            v-if="downloadErrors.get(book.md5)"
+            variant="error"
+            :message="downloadErrors.get(book.md5)!"
+            class="mb-2"
+          />
+          <BookCard
+            :book="book"
+            :selected="selectionStore.isSelected(book.md5)"
+            :download-loading="downloadLoading.get(book.md5) ?? false"
+            :kindle-enabled="kindleEnabled"
+            :pocketbook-enabled="pocketbookEnabled"
+            @toggle-select="handleToggleSelect(book)"
+            @download="handleDownload(book.md5)"
+            @deliver="handleDeliver(book.md5, $event)"
+          />
+        </div>
       </div>
     </div>
 
@@ -179,10 +246,13 @@ function handleDrawerClose() {
   <SelectionDrawer
     :books="selectionStore.selectedBooks"
     :open="drawerOpen"
+    :kindle-enabled="kindleEnabled"
+    :pocketbook-enabled="pocketbookEnabled"
     @close="handleDrawerClose"
     @remove="handleDrawerRemove"
     @clear="handleDrawerClear"
     @download-all="handleDownloadAll"
-    @add-all-to-library="handleAddAllToLibrary"
+    @kindle-all="handleKindleAll"
+    @pocketbook-all="handlePocketbookAll"
   />
 </template>

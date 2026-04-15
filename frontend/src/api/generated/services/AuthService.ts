@@ -11,6 +11,7 @@ import type { PasswordResetRequestBody } from '../models/PasswordResetRequestBod
 import type { RefreshRequest } from '../models/RefreshRequest';
 import type { RefreshResponse } from '../models/RefreshResponse';
 import type { RegisterRequest } from '../models/RegisterRequest';
+import type { RegistrationStatusResponse } from '../models/RegistrationStatusResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -142,6 +143,17 @@ export class AuthService {
             url: '/api/auth/logout',
             body: requestBody,
             mediaType: 'application/json',
+        });
+    }
+    /**
+     * Check if user registration is enabled (public)
+     * @returns RegistrationStatusResponse Registration status
+     * @throws ApiError
+     */
+    public static getRegistrationStatus(): CancelablePromise<RegistrationStatusResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/registration-status',
         });
     }
 }

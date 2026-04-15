@@ -55,4 +55,42 @@ class DownloadJobRepository(private val dsl: DSLContext) {
             .where(DOWNLOAD_JOBS.ID.eq(jobId))
             .execute()
     }
+
+    fun findAllByUserId(
+        userId: Int,
+        status: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): PaginatedResult<DownloadJobsRecord> {
+        val baseCondition = DOWNLOAD_JOBS.USER_ID.eq(userId)
+        val condition = if (status != null) {
+            baseCondition.and(DOWNLOAD_JOBS.STATUS.eq(status))
+        } else {
+            baseCondition
+        }
+
+        val totalCount = dsl.selectCount()
+            .from(DOWNLOAD_JOBS)
+            .where(condition)
+            .fetchOne(0, Long::class.java) ?: 0L
+
+        val offset = (page - 1) * pageSize
+        val items = dsl.selectFrom(DOWNLOAD_JOBS)
+            .where(condition)
+            .orderBy(DOWNLOAD_JOBS.CREATED_AT.desc())
+            .limit(pageSize)
+            .offset(offset)
+            .fetch()
+
+        return PaginatedResult(items = items, totalCount = totalCount)
+    }
+
+    fun cancelJob(jobId: Int, userId: Int): Int =
+        dsl.update(DOWNLOAD_JOBS)
+            .set(DOWNLOAD_JOBS.STATUS, "cancelled")
+            .set(DOWNLOAD_JOBS.UPDATED_AT, Instant.now().toString())
+            .where(DOWNLOAD_JOBS.ID.eq(jobId))
+            .and(DOWNLOAD_JOBS.USER_ID.eq(userId))
+            .and(DOWNLOAD_JOBS.STATUS.`in`("queued", "active"))
+            .execute()
 }

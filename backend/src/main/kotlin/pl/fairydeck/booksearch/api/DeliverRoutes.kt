@@ -4,9 +4,10 @@ import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.DeliveryService
 
-fun Route.deliverRoutes(deliveryService: DeliveryService) {
+fun Route.deliverRoutes(deliveryService: DeliveryService, activityLogService: ActivityLogService) {
     authenticate("jwt") {
         route("/api/deliver") {
             post("/{libraryId}") {
@@ -20,6 +21,7 @@ fun Route.deliverRoutes(deliveryService: DeliveryService) {
                     ?: throw ValidationException("Missing 'device' query parameter")
 
                 val response = deliveryService.deliver(principal.userId, libraryId, device)
+                activityLogService.log(principal.userId, "BOOK_DELIVERED", "library_entry", libraryId.toString(), "device=$device")
                 call.respond(HttpStatusCode.OK, response)
             }
         }

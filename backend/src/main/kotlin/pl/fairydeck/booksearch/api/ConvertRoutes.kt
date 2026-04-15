@@ -5,9 +5,10 @@ import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.ConversionService
 
-fun Route.convertRoutes(conversionService: ConversionService) {
+fun Route.convertRoutes(conversionService: ConversionService, activityLogService: ActivityLogService) {
     authenticate("jwt") {
         route("/api/convert") {
             post("/{libraryId}") {
@@ -21,6 +22,7 @@ fun Route.convertRoutes(conversionService: ConversionService) {
                     ?: throw ValidationException("Missing 'target' query parameter")
 
                 val jobId = conversionService.startConversion(principal.userId, libraryId, targetFormat)
+                activityLogService.log(principal.userId, "BOOK_CONVERTED", "library_entry", libraryId.toString(), "target=$targetFormat")
                 call.respond(HttpStatusCode.Accepted, ConversionStartedResponse(jobId = jobId, status = "queued"))
             }
 

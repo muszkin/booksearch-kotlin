@@ -58,14 +58,6 @@ describe('SelectionDrawer', () => {
     expect(wrapper.emitted('download-all')).toBeTruthy()
   })
 
-  it('emits add-all-to-library when "Add All to Library" button clicked', async () => {
-    const books = [createBookResult()]
-    const wrapper = mountDrawer(books)
-
-    await wrapper.find('[data-testid="add-all-library-btn"]').trigger('click')
-    expect(wrapper.emitted('add-all-to-library')).toBeTruthy()
-  })
-
   it('emits clear when "Clear All" clicked and remove with md5 when individual remove clicked', async () => {
     const books = [
       createBookResult({ md5: 'book-1' }),

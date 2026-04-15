@@ -31,6 +31,32 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             .fetchOne()!!
     }
 
+    fun findOrCreate(userId: Int, bookMd5: String, format: String): UserLibraryRecord {
+        val existing = dsl.selectFrom(USER_LIBRARY)
+            .where(USER_LIBRARY.USER_ID.eq(userId))
+            .and(USER_LIBRARY.BOOK_MD5.eq(bookMd5))
+            .and(USER_LIBRARY.FORMAT.eq(format))
+            .fetchOne()
+
+        if (existing != null) return existing
+
+        val now = Instant.now().toString()
+        dsl.insertInto(USER_LIBRARY)
+            .set(USER_LIBRARY.USER_ID, userId)
+            .set(USER_LIBRARY.BOOK_MD5, bookMd5)
+            .set(USER_LIBRARY.FORMAT, format)
+            .set(USER_LIBRARY.ADDED_AT, now)
+            .onConflict(USER_LIBRARY.USER_ID, USER_LIBRARY.BOOK_MD5, USER_LIBRARY.FORMAT)
+            .doNothing()
+            .execute()
+
+        return dsl.selectFrom(USER_LIBRARY)
+            .where(USER_LIBRARY.USER_ID.eq(userId))
+            .and(USER_LIBRARY.BOOK_MD5.eq(bookMd5))
+            .and(USER_LIBRARY.FORMAT.eq(format))
+            .fetchOne()!!
+    }
+
     fun findByUserId(userId: Int, page: Int, pageSize: Int): List<LibraryEntryWithBook> {
         val offset = (page - 1) * pageSize
 

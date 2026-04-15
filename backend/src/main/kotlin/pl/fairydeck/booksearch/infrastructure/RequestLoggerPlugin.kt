@@ -2,16 +2,24 @@ package pl.fairydeck.booksearch.infrastructure
 
 import io.ktor.server.application.*
 import io.ktor.server.application.hooks.ResponseSent
+import io.ktor.server.auth.*
+import io.ktor.server.plugins.callid.*
 import io.ktor.server.request.*
 import io.ktor.util.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import pl.fairydeck.booksearch.api.UserPrincipal
+import pl.fairydeck.booksearch.repository.RequestLogRepository
 
 private val logger = LoggerFactory.getLogger("pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin")
 
 private val requestStartTimeKey = AttributeKey<Long>("requestStartTime")
+
+val requestLogRepositoryKey = AttributeKey<RequestLogRepository>("requestLogRepository")
 
 private val sensitiveHeaders = setOf(
     "authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token"
@@ -56,6 +64,32 @@ val RequestLoggerPlugin = createApplicationPlugin(name = "RequestLoggerPlugin") 
         )
 
         logger.info(jsonPrinter.encodeToString(logEntry))
+
+        val repo = call.application.attributes.getOrNull(requestLogRepositoryKey)
+        if (repo != null) {
+            val userId = try {
+                call.principal<UserPrincipal>()?.userId
+            } catch (_: Exception) {
+                null
+            }
+            val requestId = call.callId
+            call.application.launch(Dispatchers.IO) {
+                try {
+                    repo.insert(
+                        method = logEntry.method,
+                        path = logEntry.path,
+                        statusCode = logEntry.statusCode,
+                        durationMs = duration.toInt(),
+                        requestHeaders = jsonPrinter.encodeToString(logEntry.requestHeaders),
+                        responseHeaders = jsonPrinter.encodeToString(logEntry.responseHeaders),
+                        requestId = requestId,
+                        userId = userId
+                    )
+                } catch (e: Exception) {
+                    logger.warn("Failed to persist request log: {}", e.message)
+                }
+            }
+        }
     }
 
     onCall { call ->

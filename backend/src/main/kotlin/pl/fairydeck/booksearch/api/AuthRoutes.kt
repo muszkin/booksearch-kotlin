@@ -12,10 +12,16 @@ import pl.fairydeck.booksearch.models.PasswordResetBody
 import pl.fairydeck.booksearch.models.PasswordResetRequestBody
 import pl.fairydeck.booksearch.models.RefreshRequest
 import pl.fairydeck.booksearch.models.RegisterRequest
+import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.service.AuthService
 
-fun Route.authRoutes(authService: AuthService) {
+fun Route.authRoutes(authService: AuthService, systemConfigRepository: SystemConfigRepository) {
     route("/api/auth") {
+        get("/registration-status") {
+            val enabled = systemConfigRepository.isRegistrationEnabled()
+            call.respond(HttpStatusCode.OK, mapOf("enabled" to enabled))
+        }
+
         post("/register") {
             val request = call.receive<RegisterRequest>()
             val response = authService.register(request.email, request.password, request.displayName)

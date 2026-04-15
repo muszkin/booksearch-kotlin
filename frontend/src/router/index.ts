@@ -7,6 +7,8 @@ import SearchView from '@/views/SearchView.vue'
 import LibraryView from '@/views/LibraryView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import AdminView from '@/views/AdminView.vue'
+import DownloadQueueView from '@/views/DownloadQueueView.vue'
+import LogsView from '@/views/LogsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,7 +27,7 @@ const router = createRouter({
       path: '/register',
       name: 'register',
       component: RegisterView,
-      meta: { guest: true },
+      meta: { guest: true, checkRegistration: true },
     },
     {
       path: '/',
@@ -46,6 +48,16 @@ const router = createRouter({
           path: 'settings',
           name: 'settings',
           component: SettingsView,
+        },
+        {
+          path: 'downloads',
+          name: 'downloads',
+          component: DownloadQueueView,
+        },
+        {
+          path: 'logs',
+          name: 'logs',
+          component: LogsView,
         },
         {
           path: 'admin',

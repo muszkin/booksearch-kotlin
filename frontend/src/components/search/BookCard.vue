@@ -8,6 +8,9 @@ import BaseButton from '@/components/base/BaseButton.vue'
 interface Props {
   book: BookResult
   selected: boolean
+  downloadLoading?: boolean
+  kindleEnabled?: boolean
+  pocketbookEnabled?: boolean
 }
 
 const props = defineProps<Props>()
@@ -15,7 +18,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'toggle-select': []
   download: []
-  'add-to-library': []
+  deliver: [device: string]
 }>()
 
 const borderColorMap: Record<string, string> = {
@@ -102,17 +105,29 @@ function onCheckboxChange() {
           data-testid="download-btn"
           variant="primary"
           class="text-xs px-3 py-1"
+          :loading="props.downloadLoading"
+          :disabled="props.downloadLoading"
           @click="emit('download')"
         >
           Download
         </BaseButton>
         <BaseButton
-          data-testid="add-library-btn"
-          variant="secondary"
+          v-if="props.kindleEnabled"
+          data-testid="send-kindle-btn"
+          variant="ghost"
           class="text-xs px-3 py-1"
-          @click="emit('add-to-library')"
+          @click="emit('deliver', 'kindle')"
         >
-          + Library
+          To Kindle
+        </BaseButton>
+        <BaseButton
+          v-if="props.pocketbookEnabled"
+          data-testid="send-pocketbook-btn"
+          variant="ghost"
+          class="text-xs px-3 py-1"
+          @click="emit('deliver', 'pocketbook')"
+        >
+          To PocketBook
         </BaseButton>
       </div>
     </div>

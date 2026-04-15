@@ -7,13 +7,14 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
+import pl.fairydeck.booksearch.service.ActivityLogService
 
 private val ALLOWED_DEVICES = setOf("kindle", "pocketbook")
 private const val REDACTED_PASSWORD = "********"
 
 private val SETTING_KEYS = listOf("smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from", "recipient_email")
 
-fun Route.settingsRoutes(userSettingsRepository: UserSettingsRepository) {
+fun Route.settingsRoutes(userSettingsRepository: UserSettingsRepository, activityLogService: ActivityLogService) {
     authenticate("jwt") {
         route("/api/settings") {
 
@@ -84,6 +85,7 @@ fun Route.settingsRoutes(userSettingsRepository: UserSettingsRepository) {
                 )
 
                 userSettingsRepository.setAll(principal.userId, settingsMap)
+                activityLogService.log(principal.userId, "SETTINGS_CHANGED", "settings", device)
 
                 call.respond(HttpStatusCode.OK, mapOf("message" to "Settings saved successfully"))
             }

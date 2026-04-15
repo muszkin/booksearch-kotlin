@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { AuthService } from '@/api/generated'
 import AuthLayout from '@/components/layout/AuthLayout.vue'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
@@ -14,6 +15,16 @@ const email = ref('')
 const password = ref('')
 const errorMessage = ref('')
 const loading = ref(false)
+const registrationEnabled = ref(true)
+
+onMounted(async () => {
+  try {
+    const status = await AuthService.getRegistrationStatus()
+    registrationEnabled.value = status.enabled
+  } catch {
+    registrationEnabled.value = false
+  }
+})
 
 function validateForm(): string | null {
   if (!email.value.trim()) {
@@ -94,7 +105,7 @@ async function handleSubmit() {
       </BaseButton>
     </form>
 
-    <p class="mt-6 text-center text-sm text-zinc-400">
+    <p v-if="registrationEnabled" class="mt-6 text-center text-sm text-zinc-400">
       Don't have an account?
       <RouterLink
         :to="{ name: 'register' }"

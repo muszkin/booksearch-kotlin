@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import apiClient from '@/api/client'
 import {
   LibraryService,
   DownloadService,
@@ -201,8 +202,21 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
-  function downloadFile(libraryId: number) {
-    window.open(`/api/library/${libraryId}/file`, '_blank')
+  async function downloadFile(libraryId: number) {
+    const response = await apiClient.get(`/library/${libraryId}/file`, { responseType: 'blob' })
+    const blob = response.data as Blob
+    const url = URL.createObjectURL(blob)
+
+    const disposition = response.headers['content-disposition'] as string | undefined
+    const filenameMatch = disposition?.match(/filename="?([^"]+)"?/)
+    const filename = filenameMatch?.[1] ?? `book-${libraryId}`
+
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    anchor.click()
+
+    URL.revokeObjectURL(url)
   }
 
   function cleanup() {

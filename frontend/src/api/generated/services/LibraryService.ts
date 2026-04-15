@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AddToLibraryRequest } from '../models/AddToLibraryRequest';
+import type { BatchDownloadRequest } from '../models/BatchDownloadRequest';
 import type { LibraryBook } from '../models/LibraryBook';
 import type { LibraryListResponse } from '../models/LibraryListResponse';
 import type { OwnershipInfo } from '../models/OwnershipInfo';
@@ -70,6 +71,26 @@ export class LibraryService {
             },
             errors: {
                 404: `Entry not found`,
+            },
+        });
+    }
+    /**
+     * Download multiple library books as a ZIP archive
+     * @param requestBody
+     * @returns binary ZIP file stream
+     * @throws ApiError
+     */
+    public static batchDownload(
+        requestBody: BatchDownloadRequest,
+    ): CancelablePromise<Blob> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/library/batch-download',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `Not authenticated`,
+                422: `Empty ID list`,
             },
         });
     }

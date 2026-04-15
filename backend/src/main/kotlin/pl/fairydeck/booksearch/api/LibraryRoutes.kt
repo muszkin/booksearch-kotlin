@@ -5,11 +5,15 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
+import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.AddToLibraryRequest
 import pl.fairydeck.booksearch.service.LibraryService
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
-fun Route.libraryRoutes(libraryService: LibraryService) {
+fun Route.libraryRoutes(libraryService: LibraryService, activityLogService: ActivityLogService) {
     authenticate("jwt") {
         route("/api/library") {
             get {
@@ -40,6 +44,7 @@ fun Route.libraryRoutes(libraryService: LibraryService) {
                     ?: throw ValidationException("Invalid library entry ID")
 
                 libraryService.removeFromLibrary(principal.userId, entryId)
+                activityLogService.log(principal.userId, "BOOK_REMOVED", "library_entry", entryId.toString())
                 call.respond(HttpStatusCode.OK, mapOf("message" to "Library entry removed successfully"))
             }
 
@@ -84,6 +89,46 @@ fun Route.libraryRoutes(libraryService: LibraryService) {
                 val ownership = libraryService.checkOwnership(principal.userId, md5s)
                 call.respond(HttpStatusCode.OK, ownership)
             }
+
+            post("/batch-download") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+
+                val request = call.receive<BatchDownloadRequest>()
+                if (request.ids.isEmpty()) {
+                    throw ValidationException("At least one library entry ID is required")
+                }
+
+                val files = request.ids.map { entryId ->
+                    val fileInfo = libraryService.getFileForEntry(principal.userId, entryId)
+                    fileInfo
+                }
+
+                call.response.header(
+                    HttpHeaders.ContentDisposition,
+                    ContentDisposition.Attachment.withParameter(
+                        ContentDisposition.Parameters.FileName,
+                        "library-books.zip"
+                    ).toString()
+                )
+                call.respondOutputStream(contentType = ContentType("application", "zip")) {
+                    ZipOutputStream(this).use { zip ->
+                        for (fileInfo in files) {
+                            val file = File(fileInfo.absolutePath)
+                            if (!file.exists()) continue
+                            val entryName = "${fileInfo.title}.${fileInfo.format}"
+                            zip.putNextEntry(ZipEntry(entryName))
+                            file.inputStream().use { it.copyTo(zip) }
+                            zip.closeEntry()
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+@Serializable
+data class BatchDownloadRequest(
+    val ids: List<Int>
+)

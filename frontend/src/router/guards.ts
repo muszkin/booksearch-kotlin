@@ -1,8 +1,9 @@
 import type { Router } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { AuthService } from '@/api/generated'
 
 export function setupRouteGuards(router: Router) {
-  router.beforeEach((to) => {
+  router.beforeEach(async (to) => {
     const authStore = useAuthStore()
     authStore.restoreSession()
 
@@ -16,6 +17,17 @@ export function setupRouteGuards(router: Router) {
 
     if (to.meta.requiresSuperAdmin && !authStore.user?.isSuperAdmin) {
       return { name: 'settings' }
+    }
+
+    if (to.meta.checkRegistration) {
+      try {
+        const status = await AuthService.getRegistrationStatus()
+        if (!status.enabled) {
+          return { name: 'login' }
+        }
+      } catch {
+        return { name: 'login' }
+      }
     }
   })
 }
