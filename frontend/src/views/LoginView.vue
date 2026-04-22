@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute, type RouteLocationRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { AuthService } from '@/api/generated'
 import AuthLayout from '@/components/layout/AuthLayout.vue'
@@ -9,6 +9,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 const email = ref('')
@@ -25,6 +26,16 @@ onMounted(async () => {
     registrationEnabled.value = false
   }
 })
+
+function resolveReturnTarget(): RouteLocationRaw {
+  const raw = route.query.returnUrl
+  if (typeof raw !== 'string') return { name: 'search' }
+  if (!raw.startsWith('/')) return { name: 'search' }
+  if (raw.startsWith('//')) return { name: 'search' }
+  if (raw.startsWith('/\\')) return { name: 'search' }
+  if (/[\x00-\x1f]/.test(raw)) return { name: 'search' }
+  return raw
+}
 
 function validateForm(): string | null {
   if (!email.value.trim()) {
@@ -55,7 +66,7 @@ async function handleSubmit() {
   loading.value = true
   try {
     await authStore.login({ email: email.value, password: password.value })
-    await router.push({ name: 'search' })
+    await router.push(resolveReturnTarget())
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Login failed. Please try again.'
   } finally {

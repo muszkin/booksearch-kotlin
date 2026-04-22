@@ -136,6 +136,25 @@ paths:
         '200':
           description: Logged out
 
+  /api/auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Return the authenticated user's profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Missing or expired access token
+        '404':
+          description: User no longer exists
+
   /api/admin/registration:
     put:
       operationId: toggleRegistration
@@ -887,10 +906,14 @@ components:
 
     RefreshResponse:
       type: object
-      required: [accessToken]
+      required: [accessToken, refreshToken, user]
       properties:
         accessToken:
           type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserResponse'
 
     PasswordResetRequestBody:
       type: object

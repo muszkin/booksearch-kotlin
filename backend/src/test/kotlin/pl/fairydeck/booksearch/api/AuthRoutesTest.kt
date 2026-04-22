@@ -146,4 +146,74 @@ class AuthRoutesTest {
         }
         assertEquals(HttpStatusCode.Unauthorized, refreshResponse.status)
     }
+
+    @Test
+    fun meReturns200WithUserForValidBearerToken() = testApp {
+        val registerResponse = client.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"me@example.com","password":"password123","displayName":"Me User"}""")
+        }
+        val registerBody = json.decodeFromString<JsonObject>(registerResponse.bodyAsText())
+        val accessToken = registerBody["accessToken"]!!.jsonPrimitive.content
+
+        val response = client.get("/api/auth/me") {
+            header(HttpHeaders.Authorization, "Bearer $accessToken")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+
+        val body = json.decodeFromString<JsonObject>(response.bodyAsText())
+        assertEquals("me@example.com", body["email"]?.jsonPrimitive?.content)
+        assertEquals("Me User", body["displayName"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun meReturns401WithoutBearerToken() = testApp {
+        val response = client.get("/api/auth/me")
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun meReturns401WithExpiredOrInvalidToken() = testApp {
+        val response = client.get("/api/auth/me") {
+            header(HttpHeaders.Authorization, "Bearer not-a-jwt")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun refreshReturnsRotatedTokenPairAndUser() = testApp {
+        val registerResponse = client.post("/api/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"rotate@example.com","password":"password123","displayName":"Rotate User"}""")
+        }
+        val registerBody = json.decodeFromString<JsonObject>(registerResponse.bodyAsText())
+        val originalRefreshToken = registerBody["refreshToken"]!!.jsonPrimitive.content
+
+        val refreshResponse = client.post("/api/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"refreshToken":"$originalRefreshToken"}""")
+        }
+        assertEquals(HttpStatusCode.OK, refreshResponse.status)
+
+        val refreshBody = json.decodeFromString<JsonObject>(refreshResponse.bodyAsText())
+        val newAccessToken = refreshBody["accessToken"]?.jsonPrimitive?.content
+        val newRefreshToken = refreshBody["refreshToken"]?.jsonPrimitive?.content
+
+        assertNotNull(newAccessToken)
+        assertNotNull(newRefreshToken)
+        assertTrue(newAccessToken!!.isNotBlank())
+        assertTrue(newRefreshToken!!.isNotBlank())
+        assertNotEquals(originalRefreshToken, newRefreshToken)
+
+        val user = refreshBody["user"]?.jsonObject
+        assertNotNull(user)
+        assertEquals("rotate@example.com", user!!["email"]?.jsonPrimitive?.content)
+
+        val replayResponse = client.post("/api/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"refreshToken":"$originalRefreshToken"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, replayResponse.status)
+    }
 }

@@ -129,12 +129,19 @@ describe('useAuthStore', () => {
     await store.login({ email: 'test@example.com', password: 'password123' })
 
     ;(apiClient.post as Mock).mockResolvedValueOnce({
-      data: { accessToken: 'new-access-token' },
+      data: {
+        accessToken: 'new-access',
+        refreshToken: 'rotated-refresh',
+        user: mockUser,
+      },
     })
 
     await store.refreshAccessToken()
 
-    expect(store.accessToken).toBe('new-access-token')
-    expect(localStorage.getItem('accessToken')).toBe('new-access-token')
+    expect(store.accessToken).toBe('new-access')
+    expect(store.refreshToken).toBe('rotated-refresh')
+    expect(store.user).toEqual(mockUser)
+    expect(localStorage.getItem('accessToken')).toBe('new-access')
+    expect(localStorage.getItem('refreshToken')).toBe('rotated-refresh')
   })
 })

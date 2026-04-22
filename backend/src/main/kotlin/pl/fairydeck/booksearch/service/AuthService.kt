@@ -3,6 +3,7 @@ package pl.fairydeck.booksearch.service
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.api.AuthenticationException
 import pl.fairydeck.booksearch.api.AuthorizationException
@@ -23,6 +24,7 @@ import java.util.Date
 import java.util.UUID
 
 class AuthService(
+    private val dsl: DSLContext,
     private val userRepository: UserRepository,
     private val refreshTokenRepository: RefreshTokenRepository,
     private val passwordResetTokenRepository: PasswordResetTokenRepository,
@@ -78,8 +80,9 @@ class AuthService(
         return buildLoginResponse(user)
     }
 
-    fun refresh(refreshToken: String): RefreshResponse {
-        val tokenRecord = refreshTokenRepository.findValidByToken(refreshToken)
+    fun refresh(refreshToken: String): RefreshResponse = dsl.transactionResult { conf ->
+        val txRepo = RefreshTokenRepository(conf.dsl())
+        val tokenRecord = txRepo.findValidByToken(refreshToken)
             ?: throw AuthenticationException("Invalid or expired refresh token")
 
         val user = userRepository.findById(tokenRecord.userId!!)
@@ -89,8 +92,26 @@ class AuthService(
             throw AuthenticationException("Account is deactivated")
         }
 
+        txRepo.revokeByToken(refreshToken)
+        val newRefreshToken = UUID.randomUUID().toString()
+        val newExpiresAt = Instant.now().plusMillis(refreshTokenExpirationMs).toString()
+        txRepo.create(user.id!!, newRefreshToken, newExpiresAt)
+
         val accessToken = generateAccessToken(user)
-        return RefreshResponse(accessToken = accessToken)
+        return@transactionResult RefreshResponse(
+            accessToken = accessToken,
+            refreshToken = newRefreshToken,
+            user = toUserResponse(user)
+        )
+    }
+
+    fun getCurrentUser(userId: Int): UserResponse {
+        val user = userRepository.findById(userId)
+            ?: throw NotFoundException("User not found")
+        if (user.isActive != 1) {
+            throw AuthenticationException("Account is deactivated")
+        }
+        return toUserResponse(user)
     }
 
     fun requestPasswordReset(email: String) {

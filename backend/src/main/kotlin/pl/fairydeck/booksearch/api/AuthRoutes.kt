@@ -53,6 +53,13 @@ fun Route.authRoutes(authService: AuthService, systemConfigRepository: SystemCon
         }
 
         authenticate("jwt") {
+            get("/me") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+                val user = authService.getCurrentUser(principal.userId)
+                call.respond(HttpStatusCode.OK, user)
+            }
+
             put("/password") {
                 val principal = call.principal<UserPrincipal>()
                     ?: throw AuthenticationException("Authentication required")

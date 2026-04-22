@@ -56,6 +56,15 @@ describe('Application Router', () => {
     const authStore = useAuthStore()
     authStore.restoreSession = vi.fn()
     authStore.accessToken = 'test-token'
+    authStore.user = {
+      id: 1,
+      email: 'user@example.com',
+      displayName: 'User',
+      isSuperAdmin: false,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
 
     await router.push('/')
     await router.isReady()

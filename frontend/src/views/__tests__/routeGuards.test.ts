@@ -4,6 +4,8 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { setupRouteGuards } from '@/router/guards'
 
+const { apiClientGetMock } = vi.hoisted(() => ({ apiClientGetMock: vi.fn() }))
+
 vi.mock('@/api/client', () => {
   const interceptors = {
     request: { use: vi.fn(), eject: vi.fn() },
@@ -12,6 +14,7 @@ vi.mock('@/api/client', () => {
   return {
     default: {
       post: vi.fn(),
+      get: apiClientGetMock,
       interceptors,
       defaults: { headers: { common: {} } },
     },
@@ -39,6 +42,8 @@ describe('Route guards', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    localStorage.clear()
+    apiClientGetMock.mockReset()
   })
 
   it('redirects unauthenticated user from /search to /login', async () => {
@@ -57,6 +62,15 @@ describe('Route guards', () => {
     const authStore = useAuthStore()
     authStore.restoreSession = vi.fn()
     authStore.accessToken = 'valid-token'
+    authStore.user = {
+      id: 2,
+      email: 'user@example.com',
+      displayName: 'User',
+      isSuperAdmin: false,
+      isActive: true,
+      forcePasswordChange: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    }
 
     await router.push('/login')
     await router.isReady()
@@ -104,5 +118,50 @@ describe('Route guards', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe('admin')
+  })
+
+  it('requiresSuperAdmin route with tokens but user=null awaits loadCurrentUser before the admin gate', async () => {
+    localStorage.setItem('accessToken', 'valid-token')
+    localStorage.setItem('refreshToken', 'valid-refresh')
+
+    const router = createGuardedRouter()
+    const authStore = useAuthStore()
+
+    apiClientGetMock.mockResolvedValue({
+      data: {
+        id: 1,
+        email: 'admin@example.com',
+        displayName: 'Admin',
+        isSuperAdmin: true,
+        isActive: true,
+        forcePasswordChange: false,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    })
+
+    await router.push('/admin')
+    await router.isReady()
+
+    expect(apiClientGetMock).toHaveBeenCalledWith('/auth/me')
+    expect(router.currentRoute.value.name).toBe('admin')
+    expect(authStore.user?.isSuperAdmin).toBe(true)
+  })
+
+  it('requiresSuperAdmin route with tokens but user=null and failing /auth/me redirects to /login with returnUrl', async () => {
+    localStorage.setItem('accessToken', 'valid-token')
+    localStorage.setItem('refreshToken', 'valid-refresh')
+
+    const router = createGuardedRouter()
+    const authStore = useAuthStore()
+
+    apiClientGetMock.mockRejectedValue(new Error('401 unauthorized'))
+
+    await router.push('/admin')
+    await router.isReady()
+
+    expect(apiClientGetMock).toHaveBeenCalledWith('/auth/me')
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.returnUrl).toBe('/admin')
+    expect(authStore.user).toBeNull()
   })
 })

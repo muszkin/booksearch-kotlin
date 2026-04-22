@@ -15,6 +15,15 @@ export function setupRouteGuards(router: Router) {
       return { name: 'search' }
     }
 
+    if (to.meta.requiresAuth && authStore.isAuthenticated && authStore.user === null) {
+      try {
+        await authStore.loadCurrentUser()
+      } catch {
+        authStore.clearState()
+        return { name: 'login', query: { returnUrl: to.fullPath } }
+      }
+    }
+
     if (to.meta.requiresSuperAdmin && !authStore.user?.isSuperAdmin) {
       return { name: 'settings' }
     }

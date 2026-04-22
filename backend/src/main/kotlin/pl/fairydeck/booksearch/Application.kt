@@ -104,6 +104,7 @@ fun Application.module() {
     }
 
     val authService = AuthService(
+        dsl = dsl,
         userRepository = userRepository,
         refreshTokenRepository = refreshTokenRepository,
         passwordResetTokenRepository = passwordResetTokenRepository,

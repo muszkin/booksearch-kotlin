@@ -40,6 +40,7 @@ class AuthServiceTest {
         systemConfigRepository = SystemConfigRepository(dsl)
 
         authService = AuthService(
+            dsl = dsl,
             userRepository = userRepository,
             refreshTokenRepository = refreshTokenRepository,
             passwordResetTokenRepository = passwordResetTokenRepository,
@@ -133,5 +134,42 @@ class AuthServiceTest {
         assertThrows(AuthenticationException::class.java) {
             authService.refresh(loginResponse.refreshToken)
         }
+    }
+
+    @Test
+    fun refreshRotatesRefreshTokenAndReturnsUser() {
+        val loginResponse = authService.register("user@example.com", "password123", "User")
+        val oldToken = loginResponse.refreshToken
+
+        val response = authService.refresh(oldToken)
+
+        assertNotEquals(oldToken, response.refreshToken)
+        assertTrue(response.refreshToken.isNotBlank())
+        assertTrue(response.accessToken.isNotBlank())
+        assertEquals("user@example.com", response.user.email)
+    }
+
+    @Test
+    fun refreshInvalidatesOldRefreshToken() {
+        val loginResponse = authService.register("user@example.com", "password123", "User")
+        val oldToken = loginResponse.refreshToken
+
+        authService.refresh(oldToken)
+
+        val exception = assertThrows(AuthenticationException::class.java) {
+            authService.refresh(oldToken)
+        }
+        assertEquals("Invalid or expired refresh token", exception.message)
+    }
+
+    @Test
+    fun getCurrentUserReturnsUserResponseForActiveUser() {
+        val loginResponse = authService.register("user@example.com", "password123", "User")
+
+        val response = authService.getCurrentUser(loginResponse.user.id.toInt())
+
+        assertEquals("user@example.com", response.email)
+        assertEquals("User", response.displayName)
+        assertTrue(response.isActive)
     }
 }

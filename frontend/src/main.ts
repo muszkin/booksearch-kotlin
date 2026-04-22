@@ -17,4 +17,8 @@ OpenAPI.TOKEN = async () => localStorage.getItem('accessToken') ?? ''
 const authStore = useAuthStore()
 authStore.restoreSession()
 
+if (authStore.isAuthenticated && authStore.user === null) {
+  authStore.loadCurrentUser().catch(() => {})
+}
+
 app.mount('#app')

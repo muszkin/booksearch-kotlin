@@ -12,6 +12,7 @@ import type { RefreshRequest } from '../models/RefreshRequest';
 import type { RefreshResponse } from '../models/RefreshResponse';
 import type { RegisterRequest } from '../models/RegisterRequest';
 import type { RegistrationStatusResponse } from '../models/RegistrationStatusResponse';
+import type { UserResponse } from '../models/UserResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -143,6 +144,21 @@ export class AuthService {
             url: '/api/auth/logout',
             body: requestBody,
             mediaType: 'application/json',
+        });
+    }
+    /**
+     * Return the authenticated user's profile
+     * @returns UserResponse Current user
+     * @throws ApiError
+     */
+    public static getCurrentUser(): CancelablePromise<UserResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/me',
+            errors: {
+                401: `Missing or expired access token`,
+                404: `User no longer exists`,
+            },
         });
     }
     /**

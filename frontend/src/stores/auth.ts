@@ -53,8 +53,13 @@ export const useAuthStore = defineStore('auth', () => {
     const { data } = await apiClient.post<RefreshResponse>('/auth/refresh', {
       refreshToken: refreshToken.value,
     })
-    accessToken.value = data.accessToken
-    localStorage.setItem(ACCESS_TOKEN_KEY, data.accessToken)
+    storeTokens(data.accessToken, data.refreshToken)
+    user.value = data.user
+  }
+
+  async function loadCurrentUser() {
+    const { data } = await apiClient.get<UserResponse>('/auth/me')
+    user.value = data
   }
 
   function restoreSession() {
@@ -75,6 +80,8 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     refreshAccessToken,
+    loadCurrentUser,
     restoreSession,
+    clearState,
   }
 })
