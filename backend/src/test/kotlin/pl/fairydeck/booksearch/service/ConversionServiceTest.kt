@@ -25,7 +25,6 @@ class ConversionServiceTest {
         requestDelayMs = 0,
         maxRetries = 0,
         backoffMultiplier = 1.0,
-        cacheTtlDays = 7,
         maxConcurrentDownloads = 2,
         dataPath = "/tmp/booksearch-conversion-test"
     )

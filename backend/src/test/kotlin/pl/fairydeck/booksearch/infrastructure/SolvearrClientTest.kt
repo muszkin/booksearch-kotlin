@@ -47,7 +47,6 @@ class SolvearrClientTest {
                 requestDelayMs = 0,
                 maxRetries = 0,
                 backoffMultiplier = 1.0,
-                cacheTtlDays = 1
             ),
             httpClientOverride = HttpClient(mockEngine)
         )

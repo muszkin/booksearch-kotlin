@@ -72,7 +72,6 @@ class GapAnalysisPhase3Test {
             requestDelayMs = 0,
             maxRetries = 0,
             backoffMultiplier = 1.0,
-            cacheTtlDays = 7,
             maxConcurrentDownloads = 2,
             dataPath = tempDir.toString()
         )
@@ -122,7 +121,6 @@ class GapAnalysisPhase3Test {
             requestDelayMs = 0,
             maxRetries = 0,
             backoffMultiplier = 1.0,
-            cacheTtlDays = 7,
             maxConcurrentDownloads = 2,
             dataPath = tempDir.toString()
         )
@@ -192,7 +190,6 @@ class GapAnalysisPhase3Test {
             requestDelayMs = 0,
             maxRetries = 0,
             backoffMultiplier = 1.0,
-            cacheTtlDays = 7,
             maxConcurrentDownloads = 2,
             dataPath = tempDir.toString()
         )
@@ -272,7 +269,6 @@ class GapAnalysisPhase3Test {
                 requestDelayMs = 0,
                 maxRetries = 0,
                 backoffMultiplier = 1.0,
-                cacheTtlDays = 1
             ),
             httpClientOverride = HttpClient(mockEngine)
         )
@@ -304,7 +300,6 @@ class GapAnalysisPhase3Test {
                 requestDelayMs = 0,
                 maxRetries = 0,
                 backoffMultiplier = 1.0,
-                cacheTtlDays = 1
             ),
             httpClientOverride = HttpClient(mockEngine)
         )
@@ -377,7 +372,6 @@ class GapAnalysisPhase3Test {
             requestDelayMs = 0,
             maxRetries = 0,
             backoffMultiplier = 1.0,
-            cacheTtlDays = 7,
             maxConcurrentDownloads = 2,
             dataPath = tempDir.toString()
         )

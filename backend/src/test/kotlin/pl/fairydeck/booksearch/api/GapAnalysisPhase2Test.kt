@@ -119,12 +119,12 @@ class GapAnalysisPhase2Test {
 
     // --- Test 5: Cache hit on second identical search (unit test with mocked scraper) ---
     @Test
-    fun shouldNotCallScraperOnSecondIdenticalSearch() {
+    fun shouldAlwaysCallScraperEvenForIdenticalRepeatedSearch() {
         val dsl = DatabaseFactory.createInMemory()
         val bookRepository = BookRepository(dsl)
         val scraperService = io.mockk.mockk<pl.fairydeck.booksearch.service.ScraperService>()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, 7)
+        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
 
         val scraped = listOf(
             ParsedBookEntry(
@@ -145,10 +145,10 @@ class GapAnalysisPhase2Test {
         io.mockk.coEvery { scraperService.scrapeSearch("Cache", "pl", "epub", 3) } returns scraped
 
         kotlinx.coroutines.runBlocking { searchService.search(userId = 1, query = "Cache", language = "pl", format = "epub", page = 1, maxPages = 3) }
-        io.mockk.coVerify(exactly = 1) { scraperService.scrapeSearch("Cache", "pl", "epub", 3) }
-
         kotlinx.coroutines.runBlocking { searchService.search(userId = 1, query = "Cache", language = "pl", format = "epub", page = 1, maxPages = 3) }
-        io.mockk.coVerify(exactly = 1) { scraperService.scrapeSearch("Cache", "pl", "epub", 3) }
+
+        // After removing the search cache, every call must hit the scraper — never reuse a cached result.
+        io.mockk.coVerify(exactly = 2) { scraperService.scrapeSearch("Cache", "pl", "epub", 3) }
     }
 
     // --- Test 6: Add book to library, then search shows matchType "exact" ---
@@ -158,7 +158,7 @@ class GapAnalysisPhase2Test {
         val bookRepository = BookRepository(dsl)
         val scraperService = io.mockk.mockk<pl.fairydeck.booksearch.service.ScraperService>()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, 7)
+        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
 
         val testBook = ParsedBookEntry(
             md5 = "owned0000000000000000000000001",

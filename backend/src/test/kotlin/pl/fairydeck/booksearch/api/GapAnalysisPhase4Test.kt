@@ -35,7 +35,6 @@ class GapAnalysisPhase4Test {
             requestDelayMs = 0,
             maxRetries = 0,
             backoffMultiplier = 1.0,
-            cacheTtlDays = 7,
             maxConcurrentDownloads = 2,
             dataPath = "/tmp/booksearch-gap4-test"
         )

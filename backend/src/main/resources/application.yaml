@@ -16,7 +16,6 @@ jwt:
   refreshTokenExpirationMs: 2592000000
 
 scraper:
-  cacheTtlDays: 7
   requestDelayMs: 1500
   maxRetries: 2
   backoffMultiplier: 2.0

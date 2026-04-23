@@ -100,6 +100,9 @@ class DeliveryService(
             put("mail.smtp.port", config.port.toString())
             put("mail.smtp.auth", (config.username.isNotBlank()).toString())
             put("mail.smtp.starttls.enable", (config.port != MAILPIT_PORT).toString())
+            // RFC 2231 filename encoding — survives non-ASCII book titles + picky receivers (PocketBook).
+            put("mail.mime.encodefilename", "true")
+            put("mail.mime.encodeparameters", "true")
         }
 
         val session = if (config.username.isNotBlank()) {
@@ -124,16 +127,23 @@ class DeliveryService(
         }
         multipart.addBodyPart(textPart)
 
+        // Use the 3-arg attachFile so Jakarta Mail sets Content-Type + base64 encoding + disposition
+        // in one go. The previous code called attachFile(file) then overwrote Content-Type with
+        // setHeader(...), which dropped the name= parameter and caused PocketBook to treat the part
+        // as inline (bounce: "message contains no attachments").
+        val safeFileName = sanitizeFileName("${bookTitle}.${format}")
         val attachmentPart = MimeBodyPart().apply {
-            attachFile(file)
-            fileName = "${bookTitle}.${format}"
-            setHeader("Content-Type", mimeTypeForFormat(format))
+            attachFile(file, mimeTypeForFormat(format), "base64")
+            fileName = safeFileName
         }
         multipart.addBodyPart(attachmentPart)
 
         message.setContent(multipart)
         Transport.send(message)
     }
+
+    private fun sanitizeFileName(name: String): String =
+        name.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").take(200)
 
     companion object {
         private val ALLOWED_DEVICES = setOf("kindle", "pocketbook")

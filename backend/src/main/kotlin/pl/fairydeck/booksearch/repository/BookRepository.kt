@@ -5,7 +5,6 @@ import pl.fairydeck.booksearch.infrastructure.ParsedBookEntry
 import pl.fairydeck.booksearch.jooq.generated.tables.records.BooksRecord
 import pl.fairydeck.booksearch.jooq.generated.tables.references.BOOKS
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 
 class BookRepository(private val dsl: DSLContext) {
 
@@ -52,19 +51,6 @@ class BookRepository(private val dsl: DSLContext) {
         dsl.selectFrom(BOOKS)
             .where(BOOKS.MD5.`in`(md5s))
             .fetch()
-
-    fun findFreshByQuery(query: String, language: String, format: String, cacheTtlDays: Int): List<BooksRecord>? {
-        val cutoff = Instant.now().minus(cacheTtlDays.toLong(), ChronoUnit.DAYS).toString()
-
-        val results = dsl.selectFrom(BOOKS)
-            .where(BOOKS.TITLE.likeIgnoreCase("%$query%"))
-            .and(BOOKS.LANGUAGE.likeIgnoreCase("%$language%"))
-            .and(BOOKS.FORMAT.likeIgnoreCase("%$format%"))
-            .and(BOOKS.INDEXED_AT.greaterOrEqual(cutoff))
-            .fetch()
-
-        return results.ifEmpty { null }
-    }
 
     fun updateMetadata(md5: String, title: String?, author: String?, publisher: String?, description: String?) {
         val update = dsl.update(BOOKS)

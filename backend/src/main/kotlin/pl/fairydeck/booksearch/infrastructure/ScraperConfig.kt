@@ -8,7 +8,6 @@ data class ScraperConfig(
     val requestDelayMs: Long,
     val maxRetries: Int,
     val backoffMultiplier: Double,
-    val cacheTtlDays: Int,
     val maxConcurrentDownloads: Int = 2,
     val dataPath: String = "./data/library"
 ) {
@@ -21,7 +20,6 @@ data class ScraperConfig(
                 requestDelayMs = config.property("scraper.requestDelayMs").getString().toLong(),
                 maxRetries = config.property("scraper.maxRetries").getString().toInt(),
                 backoffMultiplier = config.property("scraper.backoffMultiplier").getString().toDouble(),
-                cacheTtlDays = config.property("scraper.cacheTtlDays").getString().toInt(),
                 maxConcurrentDownloads = config.propertyOrNull("scraper.maxConcurrentDownloads")?.getString()?.toInt() ?: 2,
                 dataPath = config.propertyOrNull("scraper.dataPath")?.getString() ?: "./data/library"
             )

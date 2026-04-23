@@ -9,25 +9,19 @@ import pl.fairydeck.booksearch.repository.UserLibraryRepository
 class SearchService(
     private val scraperService: ScraperService,
     private val bookRepository: BookRepository,
-    private val userLibraryRepository: UserLibraryRepository,
-    private val cacheTtlDays: Int
+    private val userLibraryRepository: UserLibraryRepository
 ) {
 
     private val logger = LoggerFactory.getLogger(SearchService::class.java)
 
     suspend fun search(userId: Int, query: String, language: String, format: String, page: Int, maxPages: Int): SearchResponse {
-        val escapedQuery = escapeLikeWildcards(query)
-        val cachedBooks = bookRepository.findFreshByQuery(escapedQuery, language, format, cacheTtlDays)
+        logger.info("Scraping fresh results for query='{}' language='{}' format='{}'", query, language, format)
 
-        val books = if (cachedBooks != null) {
-            logger.info("Cache hit for query '{}' ({} results)", query, cachedBooks.size)
-            cachedBooks
-        } else {
-            logger.info("Cache miss for query '{}', scraping...", query)
-            val scraped = scraperService.scrapeSearch(query, language, format, maxPages)
-            bookRepository.upsertFromSearch(scraped)
-            bookRepository.findFreshByQuery(escapedQuery, language, format, cacheTtlDays) ?: emptyList()
-        }
+        val scraped = scraperService.scrapeSearch(query, language, format, maxPages)
+        bookRepository.upsertFromSearch(scraped)
+
+        val md5s = scraped.mapNotNull { it.md5 }.distinct()
+        val books: List<BooksRecord> = if (md5s.isEmpty()) emptyList() else bookRepository.findByMd5List(md5s)
 
         val enriched = enrichWithOwnership(userId, books)
 
@@ -43,16 +37,10 @@ class SearchService(
         val exactEntries = userLibraryRepository.findByUserAndBookMd5s(userId, md5s)
         val ownedByMd5 = exactEntries.groupBy { it.bookMd5 ?: "" }
 
-        val titles = books.mapNotNull { it.title?.lowercase()?.trim() }.distinct()
-        val titleEntries = userLibraryRepository.findByUserAndTitles(userId, titles)
-        val ownedTitles = titleEntries.mapNotNull { record ->
-            val bookMd5 = record.bookMd5
-            if (bookMd5 != null) {
-                val book = books.find { false }
-                null
-            } else null
-        }.toSet()
-
+        val titleEntries = userLibraryRepository.findByUserAndTitles(
+            userId,
+            books.mapNotNull { it.title?.lowercase()?.trim() }.distinct()
+        )
         val titleSet = titleEntries.flatMap { record ->
             val bmd5 = record.bookMd5 ?: return@flatMap emptyList()
             val bookRecord = bookRepository.findByMd5(bmd5)
@@ -81,9 +69,6 @@ class SearchService(
             }
         }
     }
-
-    private fun escapeLikeWildcards(query: String): String =
-        query.replace("%", "\\%").replace("_", "\\_")
 
     private fun BooksRecord.toBookResult(matchType: String, ownedFormats: List<String>): BookResult =
         BookResult(

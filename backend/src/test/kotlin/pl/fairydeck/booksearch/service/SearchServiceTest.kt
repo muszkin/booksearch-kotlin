@@ -2,9 +2,7 @@ package pl.fairydeck.booksearch.service
 
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import org.jooq.DSLContext
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -13,8 +11,6 @@ import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ParsedBookEntry
 import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
-import java.time.Instant
-import java.time.temporal.ChronoUnit
 
 class SearchServiceTest {
 
@@ -23,15 +19,13 @@ class SearchServiceTest {
     private lateinit var scraperService: ScraperService
     private lateinit var searchService: SearchService
 
-    private val cacheTtlDays = 7
-
     @BeforeEach
     fun setUp() {
         dsl = DatabaseFactory.createInMemory()
         bookRepository = BookRepository(dsl)
         scraperService = mockk()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        searchService = SearchService(scraperService, bookRepository, userLibraryRepository, cacheTtlDays)
+        searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
     }
 
     @Test
@@ -67,31 +61,7 @@ class SearchServiceTest {
     }
 
     @Test
-    fun findFreshByQueryReturnsCachedResultsWhenFresh() {
-        val book = ParsedBookEntry(
-            md5 = "fresh00000000000000000000000001",
-            title = "Przestrzen objawienia",
-            author = "Alastair Reynolds",
-            language = "pl",
-            format = "epub",
-            fileSize = "2.5MB",
-            detailUrl = "/md5/fresh00000000000000000000000001",
-            coverUrl = "",
-            publisher = "",
-            year = "2020",
-            description = ""
-        )
-        bookRepository.upsertFromSearch(listOf(book))
-
-        val cached = bookRepository.findFreshByQuery("Przestrzen", "pl", "epub", cacheTtlDays)
-
-        assertNotNull(cached)
-        assertEquals(1, cached!!.size)
-        assertEquals("Przestrzen objawienia", cached.first().title)
-    }
-
-    @Test
-    fun searchCallsScraperWhenNoFreshCache() {
+    fun searchAlwaysCallsScraperAndReturnsFreshResults() {
         val scraped = listOf(
             ParsedBookEntry(
                 md5 = "scraped0000000000000000000000001",
@@ -125,8 +95,9 @@ class SearchServiceTest {
     }
 
     @Test
-    fun searchUsesCacheWhenFresh() {
-        val book = ParsedBookEntry(
+    fun searchDoesNotUseCachedResults() {
+        // Pre-populate the books table with a "cached" entry matching the query.
+        val cached = ParsedBookEntry(
             md5 = "cached00000000000000000000000001",
             title = "Cached Book",
             author = "Cached Author",
@@ -139,7 +110,25 @@ class SearchServiceTest {
             year = "2023",
             description = ""
         )
-        bookRepository.upsertFromSearch(listOf(book))
+        bookRepository.upsertFromSearch(listOf(cached))
+
+        // Scraper returns a different, fresh result.
+        val scraped = listOf(
+            ParsedBookEntry(
+                md5 = "fresh000000000000000000000000001",
+                title = "Fresh Scrape Result",
+                author = "Fresh Author",
+                language = "pl",
+                format = "epub",
+                fileSize = "2MB",
+                detailUrl = "/md5/fresh000000000000000000000000001",
+                coverUrl = "",
+                publisher = "",
+                year = "2024",
+                description = ""
+            )
+        )
+        coEvery { scraperService.scrapeSearch("Cached", "pl", "epub", 3) } returns scraped
 
         val response = kotlinx.coroutines.runBlocking { searchService.search(
             userId = 1,
@@ -150,10 +139,9 @@ class SearchServiceTest {
             maxPages = 3
         ) }
 
-        coVerify(exactly = 0) { scraperService.scrapeSearch(any(), any(), any(), any()) }
+        // Even though the cached row matches the query, the service must always go through the scraper.
+        coVerify(exactly = 1) { scraperService.scrapeSearch("Cached", "pl", "epub", 3) }
         assertEquals(1, response.results.size)
-        assertEquals("Cached Book", response.results.first().title)
-        assertEquals("none", response.results.first().matchType)
-        assertTrue(response.results.first().ownedFormats.isEmpty())
+        assertEquals("Fresh Scrape Result", response.results.first().title)
     }
 }
