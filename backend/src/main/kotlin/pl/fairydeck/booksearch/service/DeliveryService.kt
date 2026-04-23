@@ -1,6 +1,9 @@
 package pl.fairydeck.booksearch.service
 
+import jakarta.activation.DataHandler
+import jakarta.activation.FileDataSource
 import jakarta.mail.Authenticator
+import jakarta.mail.Part
 import jakarta.mail.PasswordAuthentication
 import jakarta.mail.Session
 import jakarta.mail.Transport
@@ -8,6 +11,13 @@ import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeBodyPart
 import jakarta.mail.internet.MimeMessage
 import jakarta.mail.internet.MimeMultipart
+import jakarta.mail.internet.MimeUtility
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.api.NotFoundException
@@ -95,12 +105,15 @@ class DeliveryService(
     }
 
     private fun sendEmail(config: SmtpConfig, file: File, bookTitle: String, format: String) {
+        require(file.exists()) { "Attachment file does not exist: ${file.absolutePath}" }
+        require(file.length() > 0) { "Attachment file is empty: ${file.absolutePath}" }
+
         val properties = Properties().apply {
             put("mail.smtp.host", config.host)
             put("mail.smtp.port", config.port.toString())
             put("mail.smtp.auth", (config.username.isNotBlank()).toString())
             put("mail.smtp.starttls.enable", (config.port != MAILPIT_PORT).toString())
-            // RFC 2231 filename encoding — survives non-ASCII book titles + picky receivers (PocketBook).
+            // RFC 2231 encoding — survives non-ASCII filenames and picky receivers (PocketBook relay).
             put("mail.mime.encodefilename", "true")
             put("mail.mime.encodeparameters", "true")
         }
@@ -120,30 +133,64 @@ class DeliveryService(
             subject = bookTitle
         }
 
-        val multipart = MimeMultipart()
+        val multipart = MimeMultipart("mixed")
 
         val textPart = MimeBodyPart().apply {
-            setText("Sending book: $bookTitle")
+            setText("Sending book: $bookTitle", StandardCharsets.UTF_8.name())
         }
         multipart.addBodyPart(textPart)
 
-        // Use the 3-arg attachFile so Jakarta Mail sets Content-Type + base64 encoding + disposition
-        // in one go. The previous code called attachFile(file) then overwrote Content-Type with
-        // setHeader(...), which dropped the name= parameter and caused PocketBook to treat the part
-        // as inline (bounce: "message contains no attachments").
-        val safeFileName = sanitizeFileName("${bookTitle}.${format}")
+        // Explicit MIME headers so even the pickiest parser (PocketBook relay) recognises the attachment.
+        // Earlier attempts using attachFile(file, mime, encoding) did not reliably emit the
+        // "Content-Disposition: attachment" header in this Jakarta Mail version — hence the bounce
+        // "message contains no attachments". Setting every header manually removes the guesswork.
+        val mime = mimeTypeForFormat(format)
+        val safeFileName = sanitizeFileName("$bookTitle.$format")
+        val encodedFileName = MimeUtility.encodeText(safeFileName, StandardCharsets.UTF_8.name(), "B")
         val attachmentPart = MimeBodyPart().apply {
-            attachFile(file, mimeTypeForFormat(format), "base64")
+            dataHandler = DataHandler(FileDataSource(file))
+            setHeader("Content-Type", "$mime; name=\"$encodedFileName\"")
+            setHeader("Content-Transfer-Encoding", "base64")
+            setDisposition(Part.ATTACHMENT)
             fileName = safeFileName
         }
         multipart.addBodyPart(attachmentPart)
 
         message.setContent(multipart)
+        message.saveChanges()
+
+        logger.info(
+            "Delivery outbound email: recipient={} from={} fileName={} fileSize={} mime={}",
+            config.recipientEmail, config.fromEmail, safeFileName, file.length(), mime
+        )
+        val debugPath = dumpRawMessage(message, config.recipientEmail)
+        if (debugPath != null) {
+            logger.info("Delivery raw .eml dump: {}", debugPath)
+        }
+
         Transport.send(message)
     }
 
     private fun sanitizeFileName(name: String): String =
         name.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").take(200)
+
+    private fun dumpRawMessage(message: MimeMessage, recipient: String): Path? = try {
+        val debugDir = Path.of("/app/data/delivery-debug")
+        Files.createDirectories(debugDir)
+        val ts = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(
+            Instant.now().atZone(java.time.ZoneOffset.UTC)
+        )
+        val safeRecipient = recipient.replace(Regex("[^a-zA-Z0-9@._-]"), "_")
+        val target = debugDir.resolve("$ts-$safeRecipient.eml")
+        ByteArrayOutputStream().use { baos ->
+            message.writeTo(baos)
+            Files.write(target, baos.toByteArray())
+        }
+        target
+    } catch (e: Exception) {
+        logger.warn("Could not dump raw email for diagnostics: {}", e.message)
+        null
+    }
 
     companion object {
         private val ALLOWED_DEVICES = setOf("kindle", "pocketbook")
