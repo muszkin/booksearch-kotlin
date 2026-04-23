@@ -112,7 +112,23 @@ class DeliveryService(
             put("mail.smtp.host", config.host)
             put("mail.smtp.port", config.port.toString())
             put("mail.smtp.auth", (config.username.isNotBlank()).toString())
-            put("mail.smtp.starttls.enable", (config.port != MAILPIT_PORT).toString())
+            when (config.port) {
+                SMTPS_PORT -> {
+                    // Port 465 = SMTPS: SSL is expected from the very first byte. STARTTLS here
+                    // fails ("Got bad greeting ... [EOF]") because the server closes the plain
+                    // connection instead of replying to EHLO.
+                    put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.ssl.trust", config.host)
+                }
+                MAILPIT_PORT -> {
+                    // Local dev SMTP sink — plain, no TLS.
+                }
+                else -> {
+                    // Port 587 and friends: submission + STARTTLS upgrade.
+                    put("mail.smtp.starttls.enable", "true")
+                    put("mail.smtp.starttls.required", "true")
+                }
+            }
             // RFC 2231 encoding — survives non-ASCII filenames and picky receivers (PocketBook relay).
             put("mail.mime.encodefilename", "true")
             put("mail.mime.encodeparameters", "true")
@@ -195,6 +211,7 @@ class DeliveryService(
     companion object {
         private val ALLOWED_DEVICES = setOf("kindle", "pocketbook")
         private const val MAILPIT_PORT = 1025
+        private const val SMTPS_PORT = 465
 
         fun mimeTypeForFormat(format: String): String = when (format.lowercase()) {
             "epub" -> "application/epub+zip"
