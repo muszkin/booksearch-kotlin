@@ -2,16 +2,23 @@
 import type { UserResponse } from '@/api/generated'
 import EmptyState from '@/components/base/EmptyState.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import { useAuthStore } from '@/stores/auth'
 
 interface Props {
   users: UserResponse[]
+  impersonatingIds?: Set<number>
 }
 
-defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  impersonatingIds: () => new Set<number>(),
+})
 
 const emit = defineEmits<{
   'change-password': [user: UserResponse]
+  impersonate: [userId: number]
 }>()
+
+const authStore = useAuthStore()
 
 function formatDate(isoDate: string): string {
   return new Date(isoDate).toLocaleDateString('en-US', {
@@ -20,10 +27,15 @@ function formatDate(isoDate: string): string {
     day: 'numeric',
   })
 }
+
+function canImpersonate(user: UserResponse): boolean {
+  const currentId = authStore.user?.id
+  return user.id !== currentId && !user.isSuperAdmin
+}
 </script>
 
 <template>
-  <div v-if="users.length === 0">
+  <div v-if="props.users.length === 0">
     <EmptyState
       title="No users"
       description="No users found in the system."
@@ -44,7 +56,7 @@ function formatDate(isoDate: string): string {
       </thead>
       <tbody>
         <tr
-          v-for="user in users"
+          v-for="user in props.users"
           :key="user.id"
           class="border-b border-zinc-700/50 text-zinc-200"
         >
@@ -84,14 +96,28 @@ function formatDate(isoDate: string): string {
           </td>
           <td class="px-4 py-3 text-zinc-400">{{ formatDate(user.createdAt) }}</td>
           <td class="px-4 py-3">
-            <BaseButton
-              data-testid="change-password-btn"
-              variant="ghost"
-              class="text-xs"
-              @click="emit('change-password', user)"
-            >
-              Change Password
-            </BaseButton>
+            <div class="flex flex-wrap gap-2">
+              <BaseButton
+                data-testid="change-password-btn"
+                variant="ghost"
+                class="text-xs"
+                @click="emit('change-password', user)"
+              >
+                Change Password
+              </BaseButton>
+              <BaseButton
+                v-if="canImpersonate(user)"
+                data-testid="impersonate-btn"
+                variant="ghost"
+                class="text-xs"
+                :loading="props.impersonatingIds.has(user.id)"
+                :disabled="!user.isActive"
+                :title="!user.isActive ? 'User is inactive' : undefined"
+                @click="emit('impersonate', user.id)"
+              >
+                Impersonate
+              </BaseButton>
+            </div>
           </td>
         </tr>
       </tbody>

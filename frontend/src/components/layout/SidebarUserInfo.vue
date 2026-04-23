@@ -18,6 +18,13 @@ async function handleLogout() {
         <p class="truncate text-xs text-zinc-400">
           {{ authStore.user?.email ?? '' }}
         </p>
+        <p
+          v-if="authStore.isImpersonating"
+          data-testid="admin-impersonation-subtitle"
+          class="truncate text-xs text-amber-400"
+        >
+          🔒 admin: {{ authStore.realAdminEmail }}
+        </p>
       </div>
       <button
         type="button"

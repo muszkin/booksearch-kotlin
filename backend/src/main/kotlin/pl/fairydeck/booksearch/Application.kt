@@ -94,6 +94,8 @@ fun Application.module() {
     val refreshTokenRepository = RefreshTokenRepository(dsl)
     val passwordResetTokenRepository = PasswordResetTokenRepository(dsl)
     val systemConfigRepository = SystemConfigRepository(dsl)
+    val activityLogRepository = ActivityLogRepository(dsl)
+    val activityLogService = ActivityLogService(activityLogRepository)
 
     val accessTokenExpirationMs = environment.config.property("jwt.accessTokenExpirationMs").getString().toLong()
     val refreshTokenExpirationMs = environment.config.property("jwt.refreshTokenExpirationMs").getString().toLong()
@@ -109,6 +111,7 @@ fun Application.module() {
         refreshTokenRepository = refreshTokenRepository,
         passwordResetTokenRepository = passwordResetTokenRepository,
         systemConfigRepository = systemConfigRepository,
+        activityLogService = activityLogService,
         jwtSecret = jwtSecret,
         jwtIssuer = jwtIssuer,
         jwtAudience = jwtAudience,
@@ -155,9 +158,6 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    val activityLogRepository = ActivityLogRepository(dsl)
-    val activityLogService = ActivityLogService(activityLogRepository)
-
     configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
@@ -196,7 +196,20 @@ private fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: St
                 val userId = credential.payload.subject?.toIntOrNull() ?: return@validate null
                 val email = credential.payload.getClaim("email")?.asString() ?: return@validate null
                 val isSuperAdmin = credential.payload.getClaim("is_super_admin")?.asBoolean() ?: false
-                UserPrincipal(userId = userId, email = email, isSuperAdmin = isSuperAdmin)
+
+                val originalAdminId = credential.payload.getClaim("original_admin_id")?.asInt()
+                val actEmail = credential.payload.getClaim("act_email")?.asString()
+
+                // Both-or-neither invariant per audit IM2:
+                // original_admin_id and act_email must both be present or both absent.
+                if ((originalAdminId == null) != (actEmail == null)) return@validate null
+
+                UserPrincipal(
+                    userId = userId,
+                    email = email,
+                    isSuperAdmin = isSuperAdmin,
+                    originalAdminId = originalAdminId
+                )
             }
             challenge { _, _ ->
                 call.respond(

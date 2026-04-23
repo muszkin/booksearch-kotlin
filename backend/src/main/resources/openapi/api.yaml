@@ -851,6 +851,77 @@ paths:
         '404':
           description: User not found
 
+  /api/admin/users/{id}/impersonate:
+    post:
+      operationId: impersonateUser
+      tags: [admin]
+      summary: Start impersonating a user (super-admin only)
+      description: |
+        Admin impersonation start; SUPER_ADMIN only. Returns tokens + UserResponse with actAs* populated.
+        The returned tokens grant an impersonation session (access TTL 30 min, refresh TTL 1 h,
+        non-sliding absolute cap). Rejected if target is self, another super admin, or inactive.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Impersonation session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not authorized (not super-admin, or target is super-admin)
+        '404':
+          description: Target user not found
+        '422':
+          description: Invalid target (self, or inactive)
+
+  /api/admin/impersonate/stop:
+    post:
+      operationId: stopImpersonation
+      tags: [admin]
+      summary: Return to admin identity (end impersonation)
+      description: |
+        End impersonation session, restore admin identity with fresh tokens.
+        Revokes the impersonation refresh token and mints a fresh admin access + refresh pair
+        (standard TTL). Gated by the presence of original_admin_id JWT claim on the current
+        access token. Failing for a non-impersonated session returns 403.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  description: Current impersonation refresh token to revoke.
+      responses:
+        '200':
+          description: Admin identity restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Not authenticated or refresh token invalid
+        '403':
+          description: Current session is not an impersonation session
+        '404':
+          description: Admin user not found
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1381,4 +1452,15 @@ components:
           type: boolean
         createdAt:
           type: string
-          description: ISO-8601 timestamp
+        actAsUserId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            During an impersonation session, holds the ID of the real admin who started the session.
+            Null when not impersonating. Clients compute isImpersonating = actAsUserId != null.
+        actAsEmail:
+          type: string
+          format: email
+          nullable: true
+          description: Email of the real admin during an impersonation session. Null otherwise.

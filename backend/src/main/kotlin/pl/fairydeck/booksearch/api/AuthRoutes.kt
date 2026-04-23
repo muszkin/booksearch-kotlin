@@ -56,7 +56,7 @@ fun Route.authRoutes(authService: AuthService, systemConfigRepository: SystemCon
             get("/me") {
                 val principal = call.principal<UserPrincipal>()
                     ?: throw AuthenticationException("Authentication required")
-                val user = authService.getCurrentUser(principal.userId)
+                val user = authService.getCurrentUser(principal)
                 call.respond(HttpStatusCode.OK, user)
             }
 

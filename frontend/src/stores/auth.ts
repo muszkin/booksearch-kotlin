@@ -13,6 +13,10 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserResponse | null>(null)
 
   const isAuthenticated = computed(() => accessToken.value !== null)
+  const isImpersonating = computed(
+    () => user.value?.actAsUserId !== null && user.value?.actAsUserId !== undefined,
+  )
+  const realAdminEmail = computed(() => user.value?.actAsEmail ?? null)
 
   function storeTokens(access: string, refresh: string) {
     accessToken.value = access
@@ -62,6 +66,26 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data
   }
 
+  async function startImpersonation(userId: number) {
+    const { data } = await apiClient.post<LoginResponse>(
+      `/admin/users/${userId}/impersonate`,
+      {},
+    )
+    storeTokens(data.accessToken, data.refreshToken)
+    user.value = data.user
+  }
+
+  async function stopImpersonation() {
+    if (!refreshToken.value) {
+      throw new Error('No refresh token')
+    }
+    const { data } = await apiClient.post<LoginResponse>('/admin/impersonate/stop', {
+      refreshToken: refreshToken.value,
+    })
+    storeTokens(data.accessToken, data.refreshToken)
+    user.value = data.user
+  }
+
   function restoreSession() {
     const storedAccess = localStorage.getItem(ACCESS_TOKEN_KEY)
     const storedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY)
@@ -76,6 +100,8 @@ export const useAuthStore = defineStore('auth', () => {
     refreshToken,
     user,
     isAuthenticated,
+    isImpersonating,
+    realAdminEmail,
     login,
     register,
     logout,
@@ -83,5 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
     loadCurrentUser,
     restoreSession,
     clearState,
+    startImpersonation,
+    stopImpersonation,
   }
 })

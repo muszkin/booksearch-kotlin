@@ -16,4 +16,17 @@ class ActivityLogService(
             logger.error("Failed to log activity: action={}, entity={}, entityId={}", actionType, entityType, entityId, e)
         }
     }
+
+    fun logDual(
+        adminUserId: Int,
+        targetUserId: Int,
+        actionType: String,
+        entityType: String,
+        entityId: String? = null,
+        adminDetails: String? = null,
+        targetDetails: String? = null
+    ) {
+        log(userId = adminUserId, actionType = actionType, entityType = entityType, entityId = entityId, details = adminDetails)
+        log(userId = targetUserId, actionType = actionType, entityType = entityType, entityId = entityId, details = targetDetails)
+    }
 }

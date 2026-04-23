@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAdminStore } from '@/stores/admin'
+import { useAuthStore } from '@/stores/auth'
 import type { UserResponse } from '@/api/generated'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import UserTable from '@/components/admin/UserTable.vue'
@@ -9,9 +11,12 @@ import ChangeUserPasswordModal from '@/components/admin/ChangeUserPasswordModal.
 import AlertMessage from '@/components/base/AlertMessage.vue'
 
 const adminStore = useAdminStore()
+const authStore = useAuthStore()
+const router = useRouter()
 
 const selectedUser = ref<UserResponse | null>(null)
 const modalVisible = ref(false)
+const impersonatingIds = ref<Set<number>>(new Set())
 
 function openPasswordModal(user: UserResponse) {
   selectedUser.value = user
@@ -25,6 +30,21 @@ function closePasswordModal() {
 
 async function handleToggleRegistration() {
   await adminStore.toggleRegistration(!adminStore.registrationEnabled)
+}
+
+async function handleImpersonate(userId: number) {
+  impersonatingIds.value = new Set(impersonatingIds.value).add(userId)
+  try {
+    await authStore.startImpersonation(userId)
+    await router.push('/search')
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('Impersonation failed', e)
+  } finally {
+    const next = new Set(impersonatingIds.value)
+    next.delete(userId)
+    impersonatingIds.value = next
+  }
 }
 
 onMounted(() => {
@@ -78,7 +98,9 @@ onMounted(() => {
       <UserTable
         v-else
         :users="adminStore.users"
+        :impersonating-ids="impersonatingIds"
         @change-password="openPasswordModal"
+        @impersonate="handleImpersonate"
       />
     </section>
 

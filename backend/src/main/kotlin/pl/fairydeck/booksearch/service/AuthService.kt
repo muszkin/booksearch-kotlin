@@ -9,6 +9,7 @@ import pl.fairydeck.booksearch.api.AuthenticationException
 import pl.fairydeck.booksearch.api.AuthorizationException
 import pl.fairydeck.booksearch.api.ConflictException
 import pl.fairydeck.booksearch.api.NotFoundException
+import pl.fairydeck.booksearch.api.UserPrincipal
 import pl.fairydeck.booksearch.api.ValidationException
 import pl.fairydeck.booksearch.jooq.generated.tables.records.UsersRecord
 import pl.fairydeck.booksearch.models.LoginResponse
@@ -18,6 +19,7 @@ import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserRepository
+import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Date
@@ -29,6 +31,7 @@ class AuthService(
     private val refreshTokenRepository: RefreshTokenRepository,
     private val passwordResetTokenRepository: PasswordResetTokenRepository,
     private val systemConfigRepository: SystemConfigRepository,
+    private val activityLogService: ActivityLogService,
     private val jwtSecret: String,
     private val jwtIssuer: String,
     private val jwtAudience: String,
@@ -40,6 +43,17 @@ class AuthService(
     private val algorithm = Algorithm.HMAC256(jwtSecret)
 
     private val emailRegex = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+
+    companion object {
+        private const val IMPERSONATION_ACCESS_TTL_MS: Long = 30L * 60L * 1000L
+        private const val IMPERSONATION_REFRESH_TTL_MS: Long = 60L * 60L * 1000L
+        private const val IMPERSONATION_CAP_DETECTION_MS: Long = 24L * 60L * 60L * 1000L
+    }
+
+    private data class ImpersonationContext(
+        val adminUserId: Int,
+        val adminEmail: String
+    )
 
     fun register(email: String, password: String, displayName: String): LoginResponse {
         validateRegistrationInput(email, password, displayName)
@@ -92,6 +106,21 @@ class AuthService(
             throw AuthenticationException("Account is deactivated")
         }
 
+        // Impersonation refresh tokens carry a short absolute TTL (<= IMPERSONATION_CAP_DETECTION_MS).
+        // We refuse to rotate them — the 30min access TTL is comfortable under the 1h refresh cap,
+        // so clients do not need /auth/refresh during an impersonation session. Throw BEFORE any
+        // DB mutation so the token stays usable until /admin/impersonate/stop revokes it explicitly.
+        val createdAt = Instant.parse(tokenRecord.createdAt)
+        val expiresAt = Instant.parse(tokenRecord.expiresAt)
+        val windowMs = Duration.between(createdAt, expiresAt).toMillis()
+        if (windowMs < IMPERSONATION_CAP_DETECTION_MS) {
+            logger.warn(
+                "Impersonation refresh rotation denied: adminUserId={} tokenCreatedAt={}",
+                tokenRecord.userId, tokenRecord.createdAt
+            )
+            throw AuthenticationException("Impersonation sessions do not support refresh rotation")
+        }
+
         txRepo.revokeByToken(refreshToken)
         val newRefreshToken = UUID.randomUUID().toString()
         val newExpiresAt = Instant.now().plusMillis(refreshTokenExpirationMs).toString()
@@ -105,11 +134,16 @@ class AuthService(
         )
     }
 
-    fun getCurrentUser(userId: Int): UserResponse {
-        val user = userRepository.findById(userId)
+    fun getCurrentUser(principal: UserPrincipal): UserResponse {
+        val user = userRepository.findById(principal.userId)
             ?: throw NotFoundException("User not found")
         if (user.isActive != 1) {
             throw AuthenticationException("Account is deactivated")
+        }
+        if (principal.originalAdminId != null) {
+            val admin = userRepository.findById(principal.originalAdminId)
+                ?: throw NotFoundException("Original admin not found")
+            return toUserResponse(user, actAsUserId = admin.id!!, actAsEmail = admin.email!!)
         }
         return toUserResponse(user)
     }
@@ -196,6 +230,106 @@ class AuthService(
         userRepository.updatePasswordHash(user.id!!, newHash)
     }
 
+    fun startImpersonation(adminUserId: Int, targetUserId: Int): LoginResponse =
+        dsl.transactionResult { conf ->
+            val txRefreshRepo = RefreshTokenRepository(conf.dsl())
+
+            if (targetUserId == adminUserId) {
+                throw ValidationException("Cannot impersonate yourself")
+            }
+            val admin = userRepository.findById(adminUserId)
+                ?: throw NotFoundException("Admin user not found")
+            val target = userRepository.findById(targetUserId)
+                ?: throw NotFoundException("Target user not found")
+            if (target.isSuperAdmin == 1) {
+                throw AuthorizationException("Cannot impersonate another super admin")
+            }
+            if (target.isActive != 1) {
+                throw ValidationException("Cannot impersonate an inactive user")
+            }
+
+            val impersonationCtx = ImpersonationContext(
+                adminUserId = admin.id!!,
+                adminEmail = admin.email!!
+            )
+            val accessToken = generateAccessToken(target, impersonationCtx)
+
+            val refreshToken = UUID.randomUUID().toString()
+            val refreshExpiresAt = Instant.now().plusMillis(IMPERSONATION_REFRESH_TTL_MS).toString()
+            // user_id = adminUserId: ownership attaches the refresh to the real admin so stop()
+            // can revoke it cleanly and prove the session belongs to this admin (K2 mitigation).
+            txRefreshRepo.create(admin.id!!, refreshToken, refreshExpiresAt)
+
+            activityLogService.logDual(
+                adminUserId = admin.id!!,
+                targetUserId = target.id!!,
+                actionType = "IMPERSONATION_START",
+                entityType = "USER",
+                entityId = target.id!!.toString(),
+                adminDetails = kotlinx.serialization.json.buildJsonObject {
+                    put("target_user_id", kotlinx.serialization.json.JsonPrimitive(target.id))
+                    put("target_email", kotlinx.serialization.json.JsonPrimitive(target.email))
+                }.toString(),
+                targetDetails = kotlinx.serialization.json.buildJsonObject {
+                    put("impersonated_by_admin_id", kotlinx.serialization.json.JsonPrimitive(admin.id))
+                    put("admin_email", kotlinx.serialization.json.JsonPrimitive(admin.email))
+                }.toString()
+            )
+
+            LoginResponse(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                user = toUserResponse(target, actAsUserId = admin.id!!, actAsEmail = admin.email!!)
+            )
+        }
+
+    fun stopImpersonation(
+        currentRefreshToken: String,
+        originalAdminId: Int,
+        impersonatedUserId: Int
+    ): LoginResponse = dsl.transactionResult { conf ->
+        val txRefreshRepo = RefreshTokenRepository(conf.dsl())
+
+        val tokenRecord = txRefreshRepo.findValidByToken(currentRefreshToken)
+            ?: throw AuthenticationException("Invalid or expired refresh token")
+        if (tokenRecord.userId != originalAdminId) {
+            throw AuthorizationException("Refresh token does not belong to the original admin")
+        }
+
+        val admin = userRepository.findById(originalAdminId)
+            ?: throw NotFoundException("Admin user not found")
+        if (admin.isActive != 1) {
+            throw AuthenticationException("Admin account is deactivated")
+        }
+
+        txRefreshRepo.revokeByToken(currentRefreshToken)
+
+        val newAccessToken = generateAccessToken(admin)
+        val newRefreshToken = UUID.randomUUID().toString()
+        val newExpiresAt = Instant.now().plusMillis(refreshTokenExpirationMs).toString()
+        txRefreshRepo.create(admin.id!!, newRefreshToken, newExpiresAt)
+
+        activityLogService.logDual(
+            adminUserId = admin.id!!,
+            targetUserId = impersonatedUserId,
+            actionType = "IMPERSONATION_STOP",
+            entityType = "USER",
+            entityId = impersonatedUserId.toString(),
+            adminDetails = kotlinx.serialization.json.buildJsonObject {
+                put("target_user_id", kotlinx.serialization.json.JsonPrimitive(impersonatedUserId))
+            }.toString(),
+            targetDetails = kotlinx.serialization.json.buildJsonObject {
+                put("impersonated_by_admin_id", kotlinx.serialization.json.JsonPrimitive(admin.id))
+            }.toString()
+        )
+
+        return@transactionResult LoginResponse(
+            accessToken = newAccessToken,
+            refreshToken = newRefreshToken,
+            user = toUserResponse(admin)
+        )
+    }
+
     private fun buildLoginResponse(user: UsersRecord): LoginResponse {
         val accessToken = generateAccessToken(user)
         val refreshToken = generateRefreshToken(user.id!!)
@@ -206,11 +340,15 @@ class AuthService(
         )
     }
 
-    private fun generateAccessToken(user: UsersRecord): String {
-        val now = Date()
-        val expiration = Date(now.time + accessTokenExpirationMs)
+    private fun generateAccessToken(user: UsersRecord): String =
+        generateAccessToken(user, impersonation = null)
 
-        return JWT.create()
+    private fun generateAccessToken(user: UsersRecord, impersonation: ImpersonationContext?): String {
+        val now = Date()
+        val ttlMs = if (impersonation != null) IMPERSONATION_ACCESS_TTL_MS else accessTokenExpirationMs
+        val expiration = Date(now.time + ttlMs)
+
+        val builder = JWT.create()
             .withIssuer(jwtIssuer)
             .withAudience(jwtAudience)
             .withSubject(user.id.toString())
@@ -218,7 +356,15 @@ class AuthService(
             .withClaim("is_super_admin", user.isSuperAdmin == 1)
             .withIssuedAt(now)
             .withExpiresAt(expiration)
-            .sign(algorithm)
+
+        if (impersonation != null) {
+            // Audit IM2: emit only original_admin_id + act_email (no redundant act_sub).
+            builder
+                .withClaim("original_admin_id", impersonation.adminUserId)
+                .withClaim("act_email", impersonation.adminEmail)
+        }
+
+        return builder.sign(algorithm)
     }
 
     private fun generateRefreshToken(userId: Int): String {
@@ -228,7 +374,11 @@ class AuthService(
         return token
     }
 
-    private fun toUserResponse(user: UsersRecord): UserResponse =
+    private fun toUserResponse(
+        user: UsersRecord,
+        actAsUserId: Int? = null,
+        actAsEmail: String? = null
+    ): UserResponse =
         UserResponse(
             id = user.id!!.toLong(),
             email = user.email!!,
@@ -236,7 +386,9 @@ class AuthService(
             isSuperAdmin = user.isSuperAdmin == 1,
             isActive = user.isActive == 1,
             forcePasswordChange = user.forcePasswordChange == 1,
-            createdAt = user.createdAt!!
+            createdAt = user.createdAt!!,
+            actAsUserId = actAsUserId?.toLong(),
+            actAsEmail = actAsEmail
         )
 
     private fun validateRegistrationInput(email: String, password: String, displayName: String) {

@@ -9,9 +9,16 @@ export type UserResponse = {
     isSuperAdmin: boolean;
     isActive: boolean;
     forcePasswordChange: boolean;
-    /**
-     * ISO-8601 timestamp
-     */
     createdAt: string;
+    /**
+     * During an impersonation session, holds the ID of the real admin who started the session.
+     * Null when not impersonating. Clients compute isImpersonating = actAsUserId != null.
+     *
+     */
+    actAsUserId?: number | null;
+    /**
+     * Email of the real admin during an impersonation session. Null otherwise.
+     */
+    actAsEmail?: string | null;
 };
 

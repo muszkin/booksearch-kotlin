@@ -7,6 +7,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import pl.fairydeck.booksearch.models.ChangePasswordRequest
 import pl.fairydeck.booksearch.models.CreateUserRequest
+import pl.fairydeck.booksearch.models.StopImpersonationRequest
 import pl.fairydeck.booksearch.models.ToggleRegistrationRequest
 import pl.fairydeck.booksearch.service.AuthService
 
@@ -40,6 +41,34 @@ fun Route.adminRoutes(authService: AuthService) {
                 val request = call.receive<ChangePasswordRequest>()
                 authService.changeUserPassword(targetUserId, request.newPassword)
                 call.respond(HttpStatusCode.OK, mapOf("message" to "Password changed successfully"))
+            }
+
+            post("/users/{id}/impersonate") {
+                requireSuperAdmin(call)
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+                val targetUserId = call.parameters["id"]?.toIntOrNull()
+                    ?: throw ValidationException("Invalid user ID")
+                val response = authService.startImpersonation(
+                    adminUserId = principal.userId,
+                    targetUserId = targetUserId
+                )
+                call.respond(HttpStatusCode.OK, response)
+            }
+
+            post("/impersonate/stop") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+                val originalAdminId = principal.originalAdminId
+                    ?: throw AuthorizationException("Not in an impersonation session")
+                val impersonatedUserId = principal.userId
+                val request = call.receive<StopImpersonationRequest>()
+                val response = authService.stopImpersonation(
+                    currentRefreshToken = request.refreshToken,
+                    originalAdminId = originalAdminId,
+                    impersonatedUserId = impersonatedUserId
+                )
+                call.respond(HttpStatusCode.OK, response)
             }
         }
     }

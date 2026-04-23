@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ChangePasswordRequest } from '../models/ChangePasswordRequest';
 import type { CreateUserRequest } from '../models/CreateUserRequest';
+import type { LoginResponse } from '../models/LoginResponse';
 import type { ToggleRegistrationRequest } from '../models/ToggleRegistrationRequest';
 import type { UserResponse } from '../models/UserResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -85,6 +86,64 @@ export class AdminService {
             errors: {
                 403: `Not authorized`,
                 404: `User not found`,
+            },
+        });
+    }
+    /**
+     * Start impersonating a user (super-admin only)
+     * Admin impersonation start; SUPER_ADMIN only. Returns tokens + UserResponse with actAs* populated.
+     * The returned tokens grant an impersonation session (access TTL 30 min, refresh TTL 1 h,
+     * non-sliding absolute cap). Rejected if target is self, another super admin, or inactive.
+     *
+     * @param id
+     * @returns LoginResponse Impersonation session started
+     * @throws ApiError
+     */
+    public static impersonateUser(
+        id: number,
+    ): CancelablePromise<LoginResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/users/{id}/impersonate',
+            path: {
+                'id': id,
+            },
+            errors: {
+                401: `Not authenticated`,
+                403: `Not authorized (not super-admin, or target is super-admin)`,
+                404: `Target user not found`,
+                422: `Invalid target (self, or inactive)`,
+            },
+        });
+    }
+    /**
+     * Return to admin identity (end impersonation)
+     * End impersonation session, restore admin identity with fresh tokens.
+     * Revokes the impersonation refresh token and mints a fresh admin access + refresh pair
+     * (standard TTL). Gated by the presence of original_admin_id JWT claim on the current
+     * access token. Failing for a non-impersonated session returns 403.
+     *
+     * @param requestBody
+     * @returns LoginResponse Admin identity restored
+     * @throws ApiError
+     */
+    public static stopImpersonation(
+        requestBody: {
+            /**
+             * Current impersonation refresh token to revoke.
+             */
+            refreshToken: string;
+        },
+    ): CancelablePromise<LoginResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/admin/impersonate/stop',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `Not authenticated or refresh token invalid`,
+                403: `Current session is not an impersonation session`,
+                404: `Admin user not found`,
             },
         });
     }

@@ -124,4 +124,92 @@ class AdminRoutesTest {
         }
         assertEquals(HttpStatusCode.OK, loginResponse.status)
     }
+
+    @Test
+    fun impersonateReturns200WithActAsFields() = testApp {
+        val adminBody = registerUser("admin@example.com", "password123", "Admin")
+        val adminToken = adminBody.accessToken()
+        val adminId = adminBody["user"]!!.jsonObject["id"]!!.jsonPrimitive.content
+        val adminEmail = adminBody["user"]!!.jsonObject["email"]!!.jsonPrimitive.content
+
+        val targetBody = registerUser("target@example.com", "password123", "Target")
+        val targetId = targetBody["user"]!!.jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.post("/api/admin/users/$targetId/impersonate") {
+            header(HttpHeaders.Authorization, "Bearer $adminToken")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+
+        val body = json.decodeFromString<JsonObject>(response.bodyAsText())
+        val accessToken = body["accessToken"]!!.jsonPrimitive.content
+        val refreshToken = body["refreshToken"]!!.jsonPrimitive.content
+        assertTrue(accessToken.isNotBlank(), "accessToken should be non-blank")
+        assertTrue(refreshToken.isNotBlank(), "refreshToken should be non-blank")
+
+        val user = body["user"]!!.jsonObject
+        assertEquals(targetId, user["id"]!!.jsonPrimitive.content)
+        assertEquals(adminId, user["actAsUserId"]!!.jsonPrimitive.content)
+        assertEquals(adminEmail, user["actAsEmail"]!!.jsonPrimitive.content)
+        assertFalse(user["isSuperAdmin"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun impersonateReturns403ForNonSuperAdmin() = testApp {
+        registerUser("admin@example.com", "password123", "Admin")
+        val regular1Body = registerUser("regular1@example.com", "password123", "Regular1")
+        val regular1Token = regular1Body.accessToken()
+
+        val regular2Body = registerUser("regular2@example.com", "password123", "Regular2")
+        val regular2Id = regular2Body["user"]!!.jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.post("/api/admin/users/$regular2Id/impersonate") {
+            header(HttpHeaders.Authorization, "Bearer $regular1Token")
+        }
+
+        assertEquals(HttpStatusCode.Forbidden, response.status)
+        val body = json.decodeFromString<JsonObject>(response.bodyAsText())
+        val message = body["message"]?.jsonPrimitive?.content ?: ""
+        assertTrue(message.contains("Super-admin", ignoreCase = true), "expected 'Super-admin' in message, got: $message")
+    }
+
+    @Test
+    fun impersonateReturns422ForSelf() = testApp {
+        val adminBody = registerUser("admin@example.com", "password123", "Admin")
+        val adminToken = adminBody.accessToken()
+        val adminId = adminBody["user"]!!.jsonObject["id"]!!.jsonPrimitive.content
+
+        val response = client.post("/api/admin/users/$adminId/impersonate") {
+            header(HttpHeaders.Authorization, "Bearer $adminToken")
+        }
+
+        assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+    }
+
+    @Test
+    fun impersonateReturns404ForMissingTarget() = testApp {
+        val adminBody = registerUser("admin@example.com", "password123", "Admin")
+        val adminToken = adminBody.accessToken()
+
+        val response = client.post("/api/admin/users/99999/impersonate") {
+            header(HttpHeaders.Authorization, "Bearer $adminToken")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun stopReturns403WhenNotImpersonating() = testApp {
+        val adminBody = registerUser("admin@example.com", "password123", "Admin")
+        val adminAccessToken = adminBody.accessToken()
+        val adminRefreshToken = adminBody["refreshToken"]!!.jsonPrimitive.content
+
+        val response = client.post("/api/admin/impersonate/stop") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $adminAccessToken")
+            setBody("""{"refreshToken":"$adminRefreshToken"}""")
+        }
+
+        assertEquals(HttpStatusCode.Forbidden, response.status)
+    }
 }

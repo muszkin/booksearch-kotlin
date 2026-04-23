@@ -3,6 +3,10 @@ import { ref } from 'vue'
 import AppSidebar from './AppSidebar.vue'
 import MobileTopBar from './MobileTopBar.vue'
 import MobileDrawer from './MobileDrawer.vue'
+import ImpersonationBanner from './ImpersonationBanner.vue'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const drawerOpen = ref(false)
 
@@ -17,6 +21,8 @@ function closeDrawer() {
 
 <template>
   <div class="min-h-screen bg-zinc-900">
+    <ImpersonationBanner v-if="authStore.isImpersonating" />
+
     <AppSidebar />
 
     <MobileTopBar @toggle-menu="openDrawer" />
