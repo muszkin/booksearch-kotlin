@@ -9,6 +9,7 @@ interface Props {
   book: BookResult
   selected: boolean
   downloadLoading?: boolean
+  deliveryLoading?: boolean
   kindleEnabled?: boolean
   pocketbookEnabled?: boolean
 }
@@ -116,6 +117,8 @@ function onCheckboxChange() {
           data-testid="send-kindle-btn"
           variant="ghost"
           class="text-xs px-3 py-1"
+          :loading="props.deliveryLoading"
+          :disabled="props.deliveryLoading"
           @click="emit('deliver', 'kindle')"
         >
           To Kindle
@@ -125,6 +128,8 @@ function onCheckboxChange() {
           data-testid="send-pocketbook-btn"
           variant="ghost"
           class="text-xs px-3 py-1"
+          :loading="props.deliveryLoading"
+          :disabled="props.deliveryLoading"
           @click="emit('deliver', 'pocketbook')"
         >
           To PocketBook

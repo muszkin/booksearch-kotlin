@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import EmptyState from '@/components/base/EmptyState.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
@@ -12,6 +12,7 @@ import apiClient from '@/api/client'
 
 const store = useLibraryStore()
 const selectedIds = ref(new Set<number>())
+const deliveryLoading = reactive(new Map<number, boolean>())
 
 const hasSelection = computed(() => selectedIds.value.size > 0)
 const selectionCount = computed(() => selectedIds.value.size)
@@ -87,10 +88,13 @@ function handleConvert(bookId: number, targetFormat: string) {
 }
 
 async function handleDeliver(bookId: number, device: string) {
+  deliveryLoading.set(bookId, true)
   try {
     await store.deliverBook(bookId, device as 'kindle' | 'pocketbook')
   } catch {
     // Error already set in store
+  } finally {
+    deliveryLoading.set(bookId, false)
   }
 }
 
@@ -148,6 +152,7 @@ function handleRemove(bookId: number) {
               :deliveries="store.deliveries.get(book.bookMd5) ?? []"
               :kindle-enabled="store.deviceSettings.kindle"
               :pocketbook-enabled="store.deviceSettings.pocketbook"
+              :delivery-loading="deliveryLoading.get(book.id) ?? false"
               @download-file="handleDownloadFile(book.id)"
               @start-download="handleStartDownload(book.bookMd5)"
               @convert="handleConvert(book.id, $event)"

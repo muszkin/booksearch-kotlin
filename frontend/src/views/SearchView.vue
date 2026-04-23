@@ -12,11 +12,13 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import { useSearchStore } from '@/stores/search'
 import { useSelectionStore } from '@/stores/selection'
 import { useSettingsStore } from '@/stores/settings'
+import { useDownloadQueueStore } from '@/stores/download-queue'
 import { DownloadService } from '@/api/generated'
 
 const searchStore = useSearchStore()
 const selectionStore = useSelectionStore()
 const settingsStore = useSettingsStore()
+const queueStore = useDownloadQueueStore()
 
 const drawerOpen = ref(false)
 const downloadLoading = reactive(new Map<string, boolean>())
@@ -54,7 +56,8 @@ async function handleDownload(md5: string) {
   downloadErrors.delete(md5)
 
   try {
-    await DownloadService.startDownload(md5)
+    const started = await DownloadService.startDownload(md5)
+    queueStore.addOptimisticJob(started.jobId, md5)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Download failed'
     downloadErrors.set(md5, message)
@@ -69,6 +72,7 @@ async function handleDeliver(md5: string, device: string) {
 
   try {
     const started = await DownloadService.startDownload(md5)
+    queueStore.addOptimisticJob(started.jobId, md5)
 
     let status = await DownloadService.getDownloadStatus(started.jobId)
     while (status.status !== 'completed' && status.status !== 'failed') {
@@ -187,6 +191,7 @@ function handleDrawerClose() {
             :book="book"
             :selected="selectionStore.isSelected(book.md5)"
             :download-loading="downloadLoading.get(book.md5) ?? false"
+            :delivery-loading="downloadLoading.get(book.md5) ?? false"
             :kindle-enabled="kindleEnabled"
             :pocketbook-enabled="pocketbookEnabled"
             @toggle-select="handleToggleSelect(book)"

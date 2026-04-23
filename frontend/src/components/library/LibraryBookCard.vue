@@ -17,6 +17,7 @@ const props = defineProps<{
   deliveries: DeliveryRecord[]
   kindleEnabled: boolean
   pocketbookEnabled: boolean
+  deliveryLoading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -178,6 +179,8 @@ const formattedDate = computed(() => {
         data-testid="send-kindle-btn"
         variant="ghost"
         class="text-xs px-3 py-1"
+        :loading="props.deliveryLoading"
+        :disabled="props.deliveryLoading"
         @click="emit('deliver', 'kindle')"
       >
         Send to Kindle
@@ -188,6 +191,8 @@ const formattedDate = computed(() => {
         data-testid="send-pocketbook-btn"
         variant="ghost"
         class="text-xs px-3 py-1"
+        :loading="props.deliveryLoading"
+        :disabled="props.deliveryLoading"
         @click="emit('deliver', 'pocketbook')"
       >
         Send to PocketBook

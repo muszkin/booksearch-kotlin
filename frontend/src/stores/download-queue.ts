@@ -39,6 +39,24 @@ export const useDownloadQueueStore = defineStore('download-queue', () => {
     }
   }
 
+  function addOptimisticJob(jobId: number, bookMd5?: string, extras: Partial<DownloadJobItem> = {}) {
+    if (jobs.value.some((j) => j.jobId === jobId)) return
+    const now = new Date().toISOString()
+    const optimistic: DownloadJobItem = {
+      jobId,
+      bookMd5: bookMd5 ?? extras.bookMd5 ?? '',
+      format: extras.format ?? '',
+      status: extras.status ?? 'queued',
+      progress: extras.progress ?? 0,
+      createdAt: extras.createdAt ?? now,
+      updatedAt: extras.updatedAt ?? now,
+      ...extras,
+    }
+    jobs.value = [optimistic, ...jobs.value]
+    totalCount.value = totalCount.value + 1
+    fetchJobs()
+  }
+
   async function cancelJob(jobId: number) {
     try {
       await DownloadService.cancelDownloadJob(jobId)
@@ -78,6 +96,7 @@ export const useDownloadQueueStore = defineStore('download-queue', () => {
     error,
     isEmpty,
     fetchJobs,
+    addOptimisticJob,
     cancelJob,
     startPolling,
     stopPolling,
