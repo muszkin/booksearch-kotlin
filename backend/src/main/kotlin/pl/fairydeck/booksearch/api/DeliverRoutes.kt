@@ -21,7 +21,12 @@ fun Route.deliverRoutes(deliveryService: DeliveryService, activityLogService: Ac
                     ?: throw ValidationException("Missing 'device' query parameter")
 
                 val response = deliveryService.deliver(principal.userId, libraryId, device)
-                activityLogService.log(principal.userId, "BOOK_DELIVERED", "library_entry", libraryId.toString(), "device=$device")
+                val action = if (response.status == "sent") "BOOK_DELIVERED" else "BOOK_DELIVERY_FAILED"
+                val details = buildString {
+                    append("device=$device")
+                    response.error?.let { append(" error=$it") }
+                }
+                activityLogService.log(principal.userId, action, "library_entry", libraryId.toString(), details)
                 call.respond(HttpStatusCode.OK, response)
             }
         }
