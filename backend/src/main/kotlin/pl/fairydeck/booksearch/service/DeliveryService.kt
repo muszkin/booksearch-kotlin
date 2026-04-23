@@ -11,7 +11,6 @@ import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeBodyPart
 import jakarta.mail.internet.MimeMessage
 import jakarta.mail.internet.MimeMultipart
-import jakarta.mail.internet.MimeUtility
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -129,9 +128,12 @@ class DeliveryService(
                     put("mail.smtp.starttls.required", "true")
                 }
             }
-            // RFC 2231 encoding — survives non-ASCII filenames and picky receivers (PocketBook relay).
-            put("mail.mime.encodefilename", "true")
-            put("mail.mime.encodeparameters", "true")
+            // Keep parameter encoding OFF — RFC 2231 continuation (`name*=UTF-8''...`) is
+            // technically correct but some legacy mail parsers (PocketBook's send-to-pocketbook
+            // relay among them) don't recognise it, drop the parameter, and report "message
+            // contains no attachments". Filenames are transliterated to ASCII before attaching
+            // so no encoding is needed.
+            put("mail.mime.encodeparameters", "false")
         }
 
         val session = if (config.username.isNotBlank()) {
@@ -157,15 +159,13 @@ class DeliveryService(
         multipart.addBodyPart(textPart)
 
         // Explicit MIME headers so even the pickiest parser (PocketBook relay) recognises the attachment.
-        // Earlier attempts using attachFile(file, mime, encoding) did not reliably emit the
-        // "Content-Disposition: attachment" header in this Jakarta Mail version — hence the bounce
-        // "message contains no attachments". Setting every header manually removes the guesswork.
+        // Filenames are ASCII-transliterated first: the relay failed to recognise attachments with
+        // RFC 2231-encoded parameters (name*=UTF-8''...), so we avoid non-ASCII entirely.
         val mime = mimeTypeForFormat(format)
-        val safeFileName = sanitizeFileName("$bookTitle.$format")
-        val encodedFileName = MimeUtility.encodeText(safeFileName, StandardCharsets.UTF_8.name(), "B")
+        val safeFileName = sanitizeFileName(transliterateAscii("$bookTitle.$format"))
         val attachmentPart = MimeBodyPart().apply {
             dataHandler = DataHandler(FileDataSource(file))
-            setHeader("Content-Type", "$mime; name=\"$encodedFileName\"")
+            setHeader("Content-Type", "$mime; name=\"$safeFileName\"")
             setHeader("Content-Transfer-Encoding", "base64")
             setDisposition(Part.ATTACHMENT)
             fileName = safeFileName
@@ -189,6 +189,26 @@ class DeliveryService(
 
     private fun sanitizeFileName(name: String): String =
         name.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").take(200)
+
+    /**
+     * Transliterate Polish (and other Latin) diacritics to plain ASCII so the attachment filename
+     * can be placed in the Content-Type/Content-Disposition parameters without RFC 2231 encoding.
+     * Examples:
+     *   "Harry Potter i kamień filozoficzny.epub" -> "Harry Potter i kamien filozoficzny.epub"
+     *   "Żółć.epub" -> "Zolc.epub"
+     */
+    private fun transliterateAscii(s: String): String {
+        val table = mapOf(
+            'ą' to "a", 'ć' to "c", 'ę' to "e", 'ł' to "l", 'ń' to "n",
+            'ó' to "o", 'ś' to "s", 'ź' to "z", 'ż' to "z",
+            'Ą' to "A", 'Ć' to "C", 'Ę' to "E", 'Ł' to "L", 'Ń' to "N",
+            'Ó' to "O", 'Ś' to "S", 'Ź' to "Z", 'Ż' to "Z"
+        )
+        val polishReplaced = s.map { ch -> table[ch] ?: ch.toString() }.joinToString("")
+        val decomposed = java.text.Normalizer.normalize(polishReplaced, java.text.Normalizer.Form.NFD)
+        val stripped = decomposed.replace(Regex("\\p{M}+"), "")
+        return stripped.map { ch -> if (ch.code > 127) '_' else ch }.joinToString("")
+    }
 
     private fun dumpRawMessage(message: MimeMessage, recipient: String): Path? = try {
         val debugDir = Path.of("/app/data/delivery-debug")
