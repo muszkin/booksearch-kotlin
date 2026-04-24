@@ -13,6 +13,8 @@ import apiClient from '@/api/client'
 const store = useLibraryStore()
 const selectedIds = ref(new Set<number>())
 const deliveryLoading = reactive(new Map<number, boolean>())
+const backfilling = ref(false)
+const backfillMessage = ref<string | null>(null)
 
 const hasSelection = computed(() => selectedIds.value.size > 0)
 const selectionCount = computed(() => selectedIds.value.size)
@@ -98,6 +100,29 @@ async function handleDeliver(bookId: number, device: string) {
   }
 }
 
+async function handleBackfillCovers() {
+  backfilling.value = true
+  backfillMessage.value = null
+  try {
+    const response = await apiClient.post('/library/covers/backfill')
+    const r = response.data as {
+      extracted: number
+      alreadyPresent: number
+      skippedNoFile: number
+      skippedNotEpub: number
+      failed: number
+    }
+    backfillMessage.value =
+      `Extracted ${r.extracted} new covers · ${r.alreadyPresent} already present · ` +
+      `${r.skippedNoFile} missing file · ${r.skippedNotEpub} non-EPUB · ${r.failed} failed`
+    if (r.extracted > 0) await store.fetchLibrary(store.pagination.page)
+  } catch {
+    backfillMessage.value = 'Backfill failed. Check server logs.'
+  } finally {
+    backfilling.value = false
+  }
+}
+
 function handleRemove(bookId: number) {
   if (window.confirm('Are you sure you want to remove this book from your library?')) {
     store.removeBook(bookId)
@@ -109,6 +134,20 @@ function handleRemove(bookId: number) {
   <PageHeader title="Library" />
 
   <div class="p-6">
+    <div class="mb-4 flex items-center gap-3 flex-wrap">
+      <BaseButton
+        data-testid="backfill-covers-btn"
+        variant="ghost"
+        class="text-xs"
+        :loading="backfilling"
+        :disabled="backfilling"
+        @click="handleBackfillCovers"
+      >
+        {{ backfilling ? 'Extracting covers…' : 'Extract covers from EPUBs' }}
+      </BaseButton>
+      <span v-if="backfillMessage" class="text-xs text-zinc-400">{{ backfillMessage }}</span>
+    </div>
+
     <!-- Error state -->
     <div v-if="store.error && !store.loading">
       <AlertMessage variant="error" :message="store.error" />

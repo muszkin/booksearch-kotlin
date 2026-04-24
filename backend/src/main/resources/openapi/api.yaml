@@ -335,6 +335,23 @@ paths:
         '404':
           description: Entry not found
 
+  /api/library/covers/backfill:
+    post:
+      operationId: backfillLibraryCovers
+      tags: [library]
+      summary: Re-extract cover images from already downloaded EPUB files
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Backfill summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverBackfillResult'
+        '401':
+          description: Not authenticated
+
   /api/library/{id}/cover:
     get:
       operationId: getLibraryCover
@@ -1144,6 +1161,21 @@ components:
           type: array
           items:
             type: string
+
+    CoverBackfillResult:
+      type: object
+      required: [extracted, alreadyPresent, skippedNoFile, skippedNotEpub, failed]
+      properties:
+        extracted:
+          type: integer
+        alreadyPresent:
+          type: integer
+        skippedNoFile:
+          type: integer
+        skippedNotEpub:
+          type: integer
+        failed:
+          type: integer
 
     AddToLibraryRequest:
       type: object

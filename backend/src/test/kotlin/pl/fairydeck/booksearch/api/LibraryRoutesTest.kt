@@ -68,6 +68,29 @@ class LibraryRoutesTest {
     }
 
     @Test
+    fun shouldReturnZeroCountsWhenBackfillingCoversOnEmptyLibrary() = testApp {
+        val token = registerAndGetToken("backfill@example.com")
+
+        val response = client.post("/api/library/covers/backfill") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = json.decodeFromString<JsonObject>(response.bodyAsText())
+        assertEquals(0, body["extracted"]!!.jsonPrimitive.int)
+        assertEquals(0, body["alreadyPresent"]!!.jsonPrimitive.int)
+        assertEquals(0, body["skippedNoFile"]!!.jsonPrimitive.int)
+        assertEquals(0, body["skippedNotEpub"]!!.jsonPrimitive.int)
+        assertEquals(0, body["failed"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun shouldReturn401ForBackfillWithoutAuthentication() = testApp {
+        val response = client.post("/api/library/covers/backfill")
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
     fun shouldReturn404WhenFetchingCoverForMissingEntry() = testApp {
         val token = registerAndGetToken("covermissing@example.com")
 

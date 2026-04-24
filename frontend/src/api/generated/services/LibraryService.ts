@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AddToLibraryRequest } from '../models/AddToLibraryRequest';
 import type { BatchDownloadRequest } from '../models/BatchDownloadRequest';
+import type { CoverBackfillResult } from '../models/CoverBackfillResult';
 import type { LibraryBook } from '../models/LibraryBook';
 import type { LibraryListResponse } from '../models/LibraryListResponse';
 import type { OwnershipInfo } from '../models/OwnershipInfo';
@@ -71,6 +72,20 @@ export class LibraryService {
             },
             errors: {
                 404: `Entry not found`,
+            },
+        });
+    }
+    /**
+     * Re-extract cover images from already downloaded EPUB files
+     * @returns CoverBackfillResult Backfill summary
+     * @throws ApiError
+     */
+    public static backfillLibraryCovers(): CancelablePromise<CoverBackfillResult> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/library/covers/backfill',
+            errors: {
+                401: `Not authenticated`,
             },
         });
     }

@@ -104,6 +104,11 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             }
     }
 
+    fun findAllByUserId(userId: Int): List<UserLibraryRecord> =
+        dsl.selectFrom(USER_LIBRARY)
+            .where(USER_LIBRARY.USER_ID.eq(userId))
+            .fetch()
+
     fun countByUserId(userId: Int): Long =
         dsl.selectCount()
             .from(USER_LIBRARY)

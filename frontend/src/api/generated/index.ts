@@ -17,6 +17,7 @@ export type { ChangeOwnPasswordRequest } from './models/ChangeOwnPasswordRequest
 export type { ChangePasswordRequest } from './models/ChangePasswordRequest';
 export type { ConversionStartedResponse } from './models/ConversionStartedResponse';
 export { ConversionStatusResponse } from './models/ConversionStatusResponse';
+export type { CoverBackfillResult } from './models/CoverBackfillResult';
 export type { CreateUserRequest } from './models/CreateUserRequest';
 export type { DeliveryRecord } from './models/DeliveryRecord';
 export { DeliveryResponse } from './models/DeliveryResponse';

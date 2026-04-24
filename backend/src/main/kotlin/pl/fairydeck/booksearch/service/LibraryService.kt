@@ -13,7 +13,8 @@ import java.io.File
 class LibraryService(
     private val userLibraryRepository: UserLibraryRepository,
     private val bookRepository: BookRepository,
-    private val scraperConfig: ScraperConfig
+    private val scraperConfig: ScraperConfig,
+    private val metadataService: MetadataService? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(LibraryService::class.java)
@@ -62,6 +63,60 @@ class LibraryService(
             throw NotFoundException("Library entry not found")
         }
         logger.info("User {} removed library entry {}", userId, entryId)
+    }
+
+    fun backfillCovers(userId: Int): CoverBackfillResult {
+        val metadata = metadataService
+            ?: throw IllegalStateException("MetadataService not configured")
+
+        val entries = userLibraryRepository.findAllByUserId(userId)
+        var extracted = 0
+        var alreadyPresent = 0
+        var skippedNoFile = 0
+        var skippedNotEpub = 0
+        var failed = 0
+
+        for (entry in entries) {
+            val md5 = entry.bookMd5 ?: continue
+            val format = entry.format?.lowercase() ?: ""
+            if (format != "epub") { skippedNotEpub++; continue }
+
+            val filePath = entry.filePath
+            if (filePath.isNullOrBlank()) { skippedNoFile++; continue }
+
+            val absolute = File(scraperConfig.dataPath, filePath)
+            if (!absolute.exists()) { skippedNoFile++; continue }
+
+            val coverFile = File(absolute.parentFile, "${md5}_cover.jpg")
+            if (coverFile.exists() && coverFile.length() > 0) { alreadyPresent++; continue }
+
+            try {
+                val md = metadata.extractMetadata(absolute.toPath())
+                val bytes = md.coverBytes
+                if (bytes == null || bytes.isEmpty()) {
+                    failed++
+                    logger.info("Backfill: no cover in EPUB for {} (user {})", md5, userId)
+                    continue
+                }
+                metadata.saveCoverImage(bytes, absolute.parentFile, md5)
+                extracted++
+            } catch (e: Exception) {
+                failed++
+                logger.warn("Backfill: failed to extract cover for {} (user {}): {}", md5, userId, e.message)
+            }
+        }
+
+        logger.info(
+            "Cover backfill for user {}: extracted={} alreadyPresent={} skippedNoFile={} skippedNotEpub={} failed={}",
+            userId, extracted, alreadyPresent, skippedNoFile, skippedNotEpub, failed
+        )
+        return CoverBackfillResult(
+            extracted = extracted,
+            alreadyPresent = alreadyPresent,
+            skippedNoFile = skippedNoFile,
+            skippedNotEpub = skippedNotEpub,
+            failed = failed
+        )
     }
 
     fun getCoverForEntry(userId: Int, entryId: Int): File? {
@@ -155,6 +210,15 @@ data class LibraryListResponse(
     val page: Int,
     val pageSize: Int,
     val totalPages: Int
+)
+
+@Serializable
+data class CoverBackfillResult(
+    val extracted: Int,
+    val alreadyPresent: Int,
+    val skippedNoFile: Int,
+    val skippedNotEpub: Int,
+    val failed: Int
 )
 
 @Serializable

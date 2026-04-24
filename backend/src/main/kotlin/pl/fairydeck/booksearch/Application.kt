@@ -129,8 +129,8 @@ fun Application.module() {
     val userLibraryRepository = UserLibraryRepository(dsl)
     val userSettingsRepository = UserSettingsRepository(dsl)
     val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
-    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig)
     val metadataService = MetadataService()
+    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService)
     val downloadJobRepository = DownloadJobRepository(dsl)
     val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
     val downloadService = DownloadService(

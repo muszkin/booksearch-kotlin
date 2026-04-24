@@ -75,6 +75,20 @@ fun Route.libraryRoutes(libraryService: LibraryService, activityLogService: Acti
                 call.respondFile(file)
             }
 
+            post("/covers/backfill") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+
+                val result = libraryService.backfillCovers(principal.userId)
+                activityLogService.log(
+                    principal.userId,
+                    "LIBRARY_COVER_BACKFILL",
+                    "user",
+                    principal.userId.toString()
+                )
+                call.respond(HttpStatusCode.OK, result)
+            }
+
             get("/{id}/cover") {
                 val principal = call.principal<UserPrincipal>()
                     ?: throw AuthenticationException("Authentication required")
