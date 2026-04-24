@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import LibraryBookCard from './LibraryBookCard.vue'
+
+vi.mock('./LibraryCoverImage.vue', () => ({
+  default: { name: 'LibraryCoverImage', template: '<div data-testid="cover-stub" />' },
+}))
 import type { LibraryBook } from '@/api/generated/models/LibraryBook'
 import type { DeliveryRecord } from '@/api/generated/models/DeliveryRecord'
 

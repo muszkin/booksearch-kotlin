@@ -21,11 +21,18 @@ object HtmlParser {
         if (html.isBlank()) return emptyList()
 
         val document = Jsoup.parse(html)
-        val container = document.selectFirst(CONTAINER_SELECTOR) ?: return emptyList()
+        val containers = document.select(CONTAINER_SELECTOR)
+        if (containers.isEmpty()) return emptyList()
 
-        return container.select("> $ENTRY_SELECTOR").mapNotNull { entry ->
-            parseEntry(entry)
+        val seen = mutableSetOf<String>()
+        val results = mutableListOf<ParsedBookEntry>()
+        containers.forEach { container ->
+            container.select(ENTRY_SELECTOR).forEach { entry ->
+                val parsed = parseEntry(entry) ?: return@forEach
+                if (seen.add(parsed.md5)) results.add(parsed)
+            }
         }
+        return results
     }
 
     private fun parseEntry(entry: Element): ParsedBookEntry? {

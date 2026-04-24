@@ -75,6 +75,27 @@ export class LibraryService {
         });
     }
     /**
+     * Stream extracted EPUB cover image for a library entry
+     * @param id
+     * @returns binary Cover image
+     * @throws ApiError
+     */
+    public static getLibraryCover(
+        id: number,
+    ): CancelablePromise<Blob> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/library/{id}/cover',
+            path: {
+                'id': id,
+            },
+            errors: {
+                401: `Not authenticated`,
+                404: `Cover not available for this entry`,
+            },
+        });
+    }
+    /**
      * Download multiple library books as a ZIP archive
      * @param requestBody
      * @returns binary ZIP file stream

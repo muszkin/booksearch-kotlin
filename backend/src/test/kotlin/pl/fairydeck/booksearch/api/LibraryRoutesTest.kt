@@ -68,6 +68,24 @@ class LibraryRoutesTest {
     }
 
     @Test
+    fun shouldReturn404WhenFetchingCoverForMissingEntry() = testApp {
+        val token = registerAndGetToken("covermissing@example.com")
+
+        val response = client.get("/api/library/9999/cover") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun shouldReturn401FetchingCoverWithoutAuthentication() = testApp {
+        val response = client.get("/api/library/1/cover")
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
     fun shouldReturn200ForEmptyLibrary() = testApp {
         val token = registerAndGetToken()
 

@@ -55,6 +55,54 @@ class HtmlParserTest {
     }
 
     @Test
+    fun shouldParseEntriesFromMultipleOuterContainersAndDedupeByMd5() {
+        // Real Anna's Archive search for author name renders primary + "partial match" containers.
+        // Previously parser read only the first → truncated results to a single hit.
+        val html = """
+            <div class="js-aarecord-list-outer">
+              <div class="flex mb-4">
+                <div class="flex-grow">
+                  <a class="js-vim-focus" href="/md5/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Primary Hit</a>
+                  <div class="font-semibold text-sm">Polish [pl] · epub · 1MB · 2020</div>
+                </div>
+              </div>
+            </div>
+            <div class="js-aarecord-list-outer">
+              <div class="flex mb-4">
+                <div class="flex-grow">
+                  <a class="js-vim-focus" href="/md5/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb">Partial Hit 1</a>
+                  <div class="font-semibold text-sm">Polish [pl] · epub · 2MB · 2021</div>
+                </div>
+              </div>
+              <div class="flex mb-4">
+                <div class="flex-grow">
+                  <a class="js-vim-focus" href="/md5/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">Duplicate</a>
+                  <div class="font-semibold text-sm">Polish [pl] · epub · 1MB · 2020</div>
+                </div>
+              </div>
+              <div class="flex mb-4">
+                <div class="flex-grow">
+                  <a class="js-vim-focus" href="/md5/cccccccccccccccccccccccccccccccc">Partial Hit 2</a>
+                  <div class="font-semibold text-sm">Polish [pl] · epub · 3MB · 2022</div>
+                </div>
+              </div>
+            </div>
+        """.trimIndent()
+
+        val results = HtmlParser.parseSearchResults(html)
+
+        assertEquals(3, results.size, "Should collect unique entries across all outer containers")
+        assertEquals(
+            listOf(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "cccccccccccccccccccccccccccccccc"
+            ),
+            results.map { it.md5 }
+        )
+    }
+
+    @Test
     fun shouldReturnEmptyListForMalformedHtml() {
         val emptyResults = HtmlParser.parseSearchResults("")
         assertTrue(emptyResults.isEmpty(), "Empty HTML should return empty list")

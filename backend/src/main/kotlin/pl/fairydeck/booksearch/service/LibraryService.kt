@@ -64,6 +64,13 @@ class LibraryService(
         logger.info("User {} removed library entry {}", userId, entryId)
     }
 
+    fun getCoverForEntry(userId: Int, entryId: Int): File? {
+        val entry = userLibraryRepository.findByIdAndUserId(entryId, userId) ?: return null
+        val md5 = entry.bookMd5 ?: return null
+        val coverFile = File(File(scraperConfig.dataPath, userId.toString()), "${md5}_cover.jpg")
+        return coverFile.takeIf { it.exists() && it.length() > 0 }
+    }
+
     fun getFileForEntry(userId: Int, entryId: Int): LibraryFileInfo {
         val entry = userLibraryRepository.findByIdAndUserId(entryId, userId)
             ?: throw NotFoundException("Library entry not found")

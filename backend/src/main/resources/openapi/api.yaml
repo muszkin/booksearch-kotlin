@@ -335,6 +335,32 @@ paths:
         '404':
           description: Entry not found
 
+  /api/library/{id}/cover:
+    get:
+      operationId: getLibraryCover
+      tags: [library]
+      summary: Stream extracted EPUB cover image for a library entry
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cover image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Not authenticated
+        '404':
+          description: Cover not available for this entry
+
   /api/library/batch-download:
     post:
       operationId: batchDownload

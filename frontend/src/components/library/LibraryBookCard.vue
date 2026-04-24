@@ -7,6 +7,7 @@ import type { DeliveryRecord } from '@/api/generated/models/DeliveryRecord'
 import FormatBadge from '@/components/search/FormatBadge.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import DownloadProgressBar from './DownloadProgressBar.vue'
+import LibraryCoverImage from './LibraryCoverImage.vue'
 
 const AVAILABLE_FORMATS = ['epub', 'mobi', 'pdf'] as const
 
@@ -67,18 +68,10 @@ const formattedDate = computed(() => {
   >
     <div class="flex gap-4 p-4">
       <div class="shrink-0">
-        <img
-          v-if="props.book.coverUrl"
-          :src="props.book.coverUrl"
+        <LibraryCoverImage
+          :library-id="props.book.id"
+          :fallback-url="props.book.coverUrl || undefined"
           :alt="`Cover of ${props.book.title}`"
-          class="w-20 h-30 rounded object-cover bg-zinc-700"
-          loading="lazy"
-        />
-        <div
-          v-else
-          class="w-20 h-30 rounded bg-zinc-700"
-          role="img"
-          :aria-label="`No cover available for ${props.book.title}`"
         />
       </div>
 

@@ -75,6 +75,20 @@ fun Route.libraryRoutes(libraryService: LibraryService, activityLogService: Acti
                 call.respondFile(file)
             }
 
+            get("/{id}/cover") {
+                val principal = call.principal<UserPrincipal>()
+                    ?: throw AuthenticationException("Authentication required")
+
+                val entryId = call.parameters["id"]?.toIntOrNull()
+                    ?: throw ValidationException("Invalid library entry ID")
+
+                val cover = libraryService.getCoverForEntry(principal.userId, entryId)
+                    ?: throw NotFoundException("Cover not available for this library entry")
+
+                call.response.header(HttpHeaders.CacheControl, "private, max-age=86400")
+                call.respondFile(cover)
+            }
+
             get("/check") {
                 val principal = call.principal<UserPrincipal>()
                     ?: throw AuthenticationException("Authentication required")
