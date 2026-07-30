@@ -95,7 +95,11 @@ class TorrentFallbackClient(
                                 ?.groupValues
                                 ?.getOrNull(1)
                                 ?.toIntOrNull()
-                            if (percent != null && percent > lastReportedPercent.getAndSet(percent)) {
+                            if (
+                                percent != null &&
+                                percent > 0 &&
+                                percent > lastReportedPercent.getAndSet(percent)
+                            ) {
                                 onProgress(TorrentProgress.Downloading(percent))
                             }
                         }
