@@ -14,7 +14,7 @@ data class ScraperConfig(
     val solvearrProxyUrl: String? = null,
     val solvearrSessionTtlMinutes: Int = 24 * 60,
     val torrentFallbackEnabled: Boolean = true,
-    val torrentStallTimeoutSeconds: Long = 10 * 60
+    val torrentStallTimeoutSeconds: Long = 3 * 60
 ) {
     companion object {
         fun fromEnvironment(environment: ApplicationEnvironment): ScraperConfig {
@@ -48,7 +48,7 @@ data class ScraperConfig(
                 torrentStallTimeoutSeconds = config.propertyOrNull("scraper.torrentStallTimeoutSeconds")
                     ?.getString()
                     ?.toLong()
-                    ?: 10 * 60
+                    ?: 3 * 60
             )
         }
     }

@@ -26,7 +26,7 @@ scraper:
   solvearrProxyUrl: "$FLARESOLVERR_PROXY_URL:"
   solvearrSessionTtlMinutes: "$FLARESOLVERR_SESSION_TTL_MINUTES:1440"
   torrentFallbackEnabled: "$TORRENT_FALLBACK_ENABLED:true"
-  torrentStallTimeoutSeconds: "$TORRENT_STALL_TIMEOUT_SECONDS:600"
+  torrentStallTimeoutSeconds: "$TORRENT_STALL_TIMEOUT_SECONDS:180"
   userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 mirror:

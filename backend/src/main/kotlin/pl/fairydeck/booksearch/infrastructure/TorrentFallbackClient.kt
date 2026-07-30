@@ -120,10 +120,7 @@ class TorrentFallbackClient(
 
             if (process.exitValue() != 0) {
                 val output = outputTail.joinToString(" | ").takeLast(MAX_ERROR_OUTPUT_LENGTH)
-                throw IOException(
-                    "Torrent fallback stopped before the file was available" +
-                        output.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
-                )
+                throw IOException(formatFailure(output, config.torrentStallTimeoutSeconds))
             }
 
             val selectedFile = resolveSelectedFile(jobDirectory, selection)
@@ -234,6 +231,14 @@ class TorrentFallbackClient(
         private const val MAX_OUTPUT_LINES = 20
         private const val MAX_ERROR_OUTPUT_LENGTH = 1_000
         private val ARIA2_PROGRESS_PATTERN = Regex("""\((\d{1,3})%\)""")
+
+        internal fun formatFailure(output: String, stallTimeoutSeconds: Long): String {
+            if (output.contains("bt-stop-timeout", ignoreCase = true)) {
+                return "No torrent data became available within $stallTimeoutSeconds seconds"
+            }
+            return "Torrent fallback stopped before the file was available" +
+                output.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+        }
     }
 }
 

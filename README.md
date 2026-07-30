@@ -74,7 +74,7 @@ Mailpit UI (dev): `http://localhost:8025`
 | `FLARESOLVERR_PROXY_URL` | unset | Optional SOCKS/HTTP proxy used after direct DDoS-Guard challenges (Compose uses the private Tor sidecar) |
 | `FLARESOLVERR_SESSION_TTL_MINUTES` | `1440` | Rotate the persistent browser session after this many minutes |
 | `TORRENT_FALLBACK_ENABLED` | `true` | Use public torrents when DDoS-Guard blocks slow-download pages |
-| `TORRENT_STALL_TIMEOUT_SECONDS` | `600` | Stop a torrent fallback after this many seconds without transfer |
+| `TORRENT_STALL_TIMEOUT_SECONDS` | `180` | Stop a torrent fallback after this many seconds without transfer |
 | `SMTP_HOST` | `mailpit` | SMTP server host (used for system emails) |
 | `SMTP_PORT` | `1025` | SMTP server port |
 
