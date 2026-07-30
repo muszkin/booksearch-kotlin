@@ -64,8 +64,9 @@ services:
           curl -fsS -X POST http://localhost:8191/v1
           -H 'Content-Type: application/json'
           --data '{"cmd":"request.get","url":"https://www.google.com","maxTimeout":30000}'
-          | grep -q '"status":"ok"'
+          | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'
       interval: 30m
+      start_interval: 10s
       timeout: 45s
       retries: 2
       start_period: 60s
