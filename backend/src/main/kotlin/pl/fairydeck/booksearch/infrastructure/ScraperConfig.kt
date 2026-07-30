@@ -11,6 +11,7 @@ data class ScraperConfig(
     val maxConcurrentDownloads: Int = 2,
     val dataPath: String = "./data/library",
     val annaArchiveApiKey: String? = null,
+    val solvearrProxyUrl: String? = null,
     val solvearrSessionTtlMinutes: Int = 24 * 60,
     val torrentFallbackEnabled: Boolean = true,
     val torrentStallTimeoutSeconds: Long = 10 * 60
@@ -27,6 +28,10 @@ data class ScraperConfig(
                 maxConcurrentDownloads = config.propertyOrNull("scraper.maxConcurrentDownloads")?.getString()?.toInt() ?: 2,
                 dataPath = config.propertyOrNull("scraper.dataPath")?.getString() ?: "./data/library",
                 annaArchiveApiKey = config.propertyOrNull("scraper.annaArchiveApiKey")
+                    ?.getString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() },
+                solvearrProxyUrl = config.propertyOrNull("scraper.solvearrProxyUrl")
                     ?.getString()
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() },

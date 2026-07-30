@@ -115,6 +115,7 @@ class DownloadJobRepository(private val dsl: DSLContext) {
             "queued",
             "fetching_fast_download",
             "fetching_detail",
+            "switching_egress",
             "fetching_slow_download",
             "waiting_for_download_slot",
             "fetching_torrent_metadata",

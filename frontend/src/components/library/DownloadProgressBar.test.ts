@@ -58,4 +58,12 @@ describe('DownloadProgressBar', () => {
     expect(wrapper.text()).toContain('Waiting for torrent peers')
     expect(wrapper.text()).toContain('50%')
   })
+
+  it('explains that the network route is changing after a challenge', () => {
+    const wrapper = mount(DownloadProgressBar, {
+      props: { status: 'switching_egress', progress: 20 },
+    })
+
+    expect(wrapper.text()).toContain('Changing network route after browser verification')
+  })
 })

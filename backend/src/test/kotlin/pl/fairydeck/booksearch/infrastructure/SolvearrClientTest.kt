@@ -190,4 +190,66 @@ class SolvearrClientTest {
 
         client.close()
     }
+
+    @Test
+    fun shouldRetryChallengeThroughConfiguredProxySession() = runBlocking {
+        val requestBodies = mutableListOf<String>()
+        val mockEngine = MockEngine { request ->
+            val requestBody = (request.body as TextContent).text
+            requestBodies.add(requestBody)
+            val responseBody = when {
+                requestBody.contains("\"cmd\":\"sessions.create\"") ->
+                    """{"status":"ok","message":"Session created successfully."}"""
+                requestBody.contains("\"session\":\"booksearch-annas-proxy\"") ->
+                    """
+                    {
+                        "status": "ok",
+                        "message": "Challenge not detected!",
+                        "solution": {
+                            "status": 200,
+                            "response": "<html><body>Anna's Archive search results</body></html>",
+                            "cookies": []
+                        }
+                    }
+                    """.trimIndent()
+                else ->
+                    """
+                    {
+                        "status": "ok",
+                        "message": "Challenge not detected!",
+                        "solution": {
+                            "status": 200,
+                            "response": "<html><title>DDoS-Guard</title><body>Checking your browser</body></html>",
+                            "cookies": []
+                        }
+                    }
+                    """.trimIndent()
+            }
+            respond(
+                content = ByteReadChannel(responseBody),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = SolvearrClient(
+            config = ScraperConfig(
+                solvearrUrl = "http://localhost:8191",
+                userAgent = "test",
+                requestDelayMs = 0,
+                maxRetries = 0,
+                backoffMultiplier = 1.0,
+                solvearrProxyUrl = "socks5://tor:9050"
+            ),
+            httpClientOverride = HttpClient(mockEngine)
+        )
+
+        val html = client.fetchPage("https://annas-archive.gl/search?q=test")
+
+        assertTrue(html.contains("Anna's Archive search results"))
+        assertEquals(3, requestBodies.size)
+        assertTrue(requestBodies[1].contains("\"proxy\":{\"url\":\"socks5://tor:9050\"}"))
+        assertTrue(requestBodies[2].contains("\"session\":\"booksearch-annas-proxy\""))
+        assertTrue(requestBodies[2].contains("\"session_ttl_minutes\":1440"))
+        client.close()
+    }
 }

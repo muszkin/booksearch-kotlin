@@ -44,6 +44,27 @@ class BookSearchMigrationsTest {
     }
 
     @Test
+    fun shouldCreateDownloadSourcesTableForDurableTorrentMappings() {
+        val columns = fetchTableColumns("download_sources")
+        val columnNames = columns.map { it["name"] as String }
+
+        assertEquals(
+            listOf(
+                "book_md5",
+                "mirror",
+                "torrent_url",
+                "file_level1",
+                "file_level2",
+                "updated_at"
+            ),
+            columnNames
+        )
+        val bookMd5Column = columns.first { it["name"] == "book_md5" }
+        assertEquals(1, bookMd5Column["pk"])
+        assertEquals(1, bookMd5Column["notnull"])
+    }
+
+    @Test
     fun shouldCreateUserLibraryTableWithUniqueConstraintAndForeignKeys() {
         val columns = fetchTableColumns("user_library")
         val columnNames = columns.map { it["name"] as String }

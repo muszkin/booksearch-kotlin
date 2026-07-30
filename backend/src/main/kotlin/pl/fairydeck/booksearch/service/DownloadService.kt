@@ -22,6 +22,7 @@ import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.TorrentProgress
 import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
+import pl.fairydeck.booksearch.repository.DownloadSourceRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import java.io.File
 import java.net.URI
@@ -37,7 +38,8 @@ class DownloadService(
     private val scraperConfig: ScraperConfig,
     private val metadataService: MetadataService? = null,
     private val fastDownloadClient: AnnaArchiveFastDownloadClient? = null,
-    private val torrentFallbackClient: TorrentFallbackClient? = null
+    private val torrentFallbackClient: TorrentFallbackClient? = null,
+    private val downloadSourceRepository: DownloadSourceRepository? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(DownloadService::class.java)
@@ -198,8 +200,28 @@ class DownloadService(
         }
 
         return downloadResolutionMutex.withLock {
-            solvearrClient.createSession(DOWNLOAD_SESSION_ID)
-            resolveFreeDownloadSource(jobId, bookMd5, mirrors, DOWNLOAD_SESSION_ID)
+            try {
+                solvearrClient.createSession(DOWNLOAD_SESSION_ID)
+                resolveFreeDownloadSource(jobId, bookMd5, mirrors, DOWNLOAD_SESSION_ID)
+            } catch (error: Exception) {
+                val proxyUrl = scraperConfig.solvearrProxyUrl
+                if (proxyUrl == null || !isChallengeFailure(error)) {
+                    throw error
+                }
+
+                logger.warn(
+                    "Job {}: all direct attempts were challenged; switching browser egress",
+                    jobId
+                )
+                downloadJobRepository.updateProgress(jobId, "switching_egress", 20)
+                solvearrClient.createSession(DOWNLOAD_PROXY_SESSION_ID, proxyUrl)
+                resolveFreeDownloadSource(
+                    jobId,
+                    bookMd5,
+                    mirrors,
+                    DOWNLOAD_PROXY_SESSION_ID
+                )
+            }
         }
     }
 
@@ -209,7 +231,16 @@ class DownloadService(
         mirrors: List<String>,
         sessionId: String
     ): DownloadSource {
-        var torrentSource: DownloadSource.Torrent? = null
+        var torrentSource = downloadSourceRepository
+            ?.findTorrent(bookMd5)
+            ?.takeIf { !it.link.isPacked }
+            ?.let { cached ->
+                logger.info("Job {}: found cached public torrent mapping", jobId)
+                DownloadSource.Torrent(
+                    mirror = mirrors.firstOrNull() ?: cached.mirror,
+                    link = cached.link
+                )
+            }
         var lastFailure: String? = null
 
         for (mirror in mirrors) {
@@ -223,13 +254,23 @@ class DownloadService(
             } catch (e: Exception) {
                 lastFailure = e.message
                 logger.warn("Job {}: detail page failed on {}: {}", jobId, mirror, e.message)
+                if (torrentSource != null && isChallengeFailure(e)) {
+                    logger.info(
+                        "Job {}: using cached torrent mapping after direct detail challenge",
+                        jobId
+                    )
+                    return torrentSource
+                }
                 continue
             }
             val downloadLinks = HtmlParser.parseDetailPageDownloadLinks(detailPage.html)
-            if (torrentSource == null && torrentFallbackClient != null) {
-                torrentSource = HtmlParser.parseTorrentDownloadLinks(detailPage.html)
+            if (torrentFallbackClient != null) {
+                val parsedTorrent = HtmlParser.parseTorrentDownloadLinks(detailPage.html)
                     .firstOrNull { !it.isPacked }
-                    ?.let { DownloadSource.Torrent(mirror, it) }
+                if (parsedTorrent != null) {
+                    downloadSourceRepository?.upsertTorrent(bookMd5, mirror, parsedTorrent)
+                    torrentSource = DownloadSource.Torrent(mirror, parsedTorrent)
+                }
             }
 
             if (downloadLinks.isEmpty()) {
@@ -444,6 +485,7 @@ class DownloadService(
 
     companion object {
         private const val DOWNLOAD_SESSION_ID = "booksearch-annas-downloads"
+        private const val DOWNLOAD_PROXY_SESSION_ID = "booksearch-annas-downloads-proxy"
         private const val SLOW_DOWNLOAD_TIMEOUT_MS = 30_000
         private const val MAX_DOWNLOAD_SLOT_ATTEMPTS = 2
         private const val MAX_DOWNLOAD_SLOT_WAIT_SECONDS = 10 * 60

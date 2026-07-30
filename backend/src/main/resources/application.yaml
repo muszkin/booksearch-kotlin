@@ -23,6 +23,7 @@ scraper:
   maxConcurrentDownloads: "$MAX_CONCURRENT_DOWNLOADS:2"
   dataPath: "$DATA_PATH:./data/library"
   annaArchiveApiKey: "$ANNA_ARCHIVE_API_KEY:"
+  solvearrProxyUrl: "$FLARESOLVERR_PROXY_URL:"
   solvearrSessionTtlMinutes: "$FLARESOLVERR_SESSION_TTL_MINUTES:1440"
   torrentFallbackEnabled: "$TORRENT_FALLBACK_ENABLED:true"
   torrentStallTimeoutSeconds: "$TORRENT_STALL_TIMEOUT_SECONDS:600"

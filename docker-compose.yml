@@ -7,7 +7,8 @@
 # Services:
 #   backend       — Kotlin/Ktor application serving API + SPA (port 8080)
 #   flaresolverr  — headless browser proxy for Cloudflare bypass (port 8191)
-#   autoheal      — restarts FlareSolverr when its health check fails
+#   tor           — private fallback egress for reputation-blocked requests
+#   autoheal      — restarts unhealthy FlareSolverr and Tor containers
 #   mailpit       — development SMTP server + web UI (ports 1025, 8025)
 
 services:
@@ -23,6 +24,7 @@ services:
       - .env
     environment:
       MIRROR_DOMAINS: annas-archive.gd,annas-archive.pk,annas-archive.gl
+      FLARESOLVERR_PROXY_URL: ${FLARESOLVERR_PROXY_URL:-socks5://tor:9050}
     volumes:
       - booksearch-data:/app/data
     depends_on:
@@ -78,6 +80,21 @@ services:
     labels:
       logging.stack: booksearch
       logging.job: booksearch-flaresolverr
+      booksearch.autoheal: "true"
+
+  # Used only when direct browser sessions are blocked by DDoS-Guard.
+  # No proxy or control ports are published on the host.
+  tor:
+    image: dockurr/tor:0.4.9.11@sha256:446881b3366cbc2cc5cf8d13a76e3104f60824b7c15343d14defe903ded18f0d
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      logging.stack: booksearch
+      logging.job: booksearch-tor
       booksearch.autoheal: "true"
 
   # Docker restart policies react to process exits, not to an unhealthy

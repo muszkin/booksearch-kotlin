@@ -39,7 +39,18 @@ class SolvearrClient(
     }
 
     suspend fun fetchPage(url: String): String {
-        return fetchPageWithCookies(url).html
+        return try {
+            fetchPageWithCookies(url).html
+        } catch (error: ScraperException) {
+            val proxyUrl = config.solvearrProxyUrl
+            if (proxyUrl == null || !isChallengeFailure(error)) {
+                throw error
+            }
+
+            logger.warn("Direct browser verification was challenged for {}; retrying through proxy", url)
+            createSession(GENERAL_PROXY_SESSION_ID, proxyUrl)
+            fetchPageWithCookies(url, sessionId = GENERAL_PROXY_SESSION_ID).html
+        }
     }
 
     suspend fun fetchPageWithCookies(
@@ -99,9 +110,13 @@ class SolvearrClient(
         }
     }
 
-    suspend fun createSession(sessionId: String) {
+    suspend fun createSession(sessionId: String, proxyUrl: String? = null) {
         val (httpStatus, response) = execute(
-            SolvearrRequest(cmd = "sessions.create", session = sessionId)
+            SolvearrRequest(
+                cmd = "sessions.create",
+                session = sessionId,
+                proxy = proxyUrl?.let(::SolvearrProxy)
+            )
         )
         if (!httpStatus.isSuccess() || response.status != "ok") {
             val reason = response.message.ifBlank { "HTTP $httpStatus" }
@@ -152,8 +167,17 @@ class SolvearrClient(
         httpClient.close()
     }
 
+    private fun isChallengeFailure(error: Throwable): Boolean =
+        generateSequence(error as Throwable?) { it.cause }
+            .mapNotNull { it.message }
+            .any {
+                it.contains("challenge", ignoreCase = true) ||
+                    it.contains("browser verification", ignoreCase = true)
+            }
+
     companion object {
         private const val SOLVEARR_TIMEOUT_MS = 90000
+        private const val GENERAL_PROXY_SESSION_ID = "booksearch-annas-proxy"
     }
 }
 
@@ -169,8 +193,14 @@ private data class SolvearrRequest(
     val url: String? = null,
     val maxTimeout: Int? = null,
     val session: String? = null,
+    val proxy: SolvearrProxy? = null,
     @SerialName("session_ttl_minutes")
     val sessionTtlMinutes: Int? = null
+)
+
+@Serializable
+private data class SolvearrProxy(
+    val url: String
 )
 
 @Serializable

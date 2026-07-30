@@ -11,6 +11,7 @@ const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   fetching_fast_download: 'Checking fast download',
   fetching_detail: 'Opening book page',
+  switching_egress: 'Changing network route after browser verification',
   fetching_slow_download: 'Waiting for download link',
   waiting_for_download_slot: 'Waiting for a free download slot',
   fetching_torrent_metadata: 'Preparing torrent fallback',

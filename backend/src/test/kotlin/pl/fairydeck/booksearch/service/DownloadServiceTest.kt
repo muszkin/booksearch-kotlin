@@ -12,6 +12,7 @@ import pl.fairydeck.booksearch.api.NotFoundException
 import pl.fairydeck.booksearch.infrastructure.*
 import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
+import pl.fairydeck.booksearch.repository.DownloadSourceRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
 import java.io.File
@@ -160,6 +161,7 @@ class DownloadServiceTest {
 
         val fallbackStatuses = listOf(
             "fetching_fast_download",
+            "switching_egress",
             "fetching_torrent_metadata",
             "waiting_for_torrent_peers",
             "downloading_torrent_piece"
@@ -376,6 +378,192 @@ class DownloadServiceTest {
         }
 
         File(scraperConfig.dataPath, status.filePath!!).delete()
+        Unit
+    }
+
+    @Test
+    fun shouldRetryDownloadResolutionThroughConfiguredProxy() = runBlocking {
+        val user = userRepository.create("proxy@test.com", "hash", "Proxy User", false, false)
+        val md5 = "fedcba9876543210fedcba9876543210"
+        insertTestBook(md5)
+        val proxyConfig = scraperConfig.copy(
+            solvearrProxyUrl = "socks5://tor:9050"
+        )
+        val torrentFallbackClient = mockk<TorrentFallbackClient>()
+        val detailHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-detail-page.html")!!
+            .readText()
+            .replace(
+                "</body>",
+                """
+                    <ul>
+                      <li>
+                        <a href="/dyn/small_file/torrents/proxy-test.torrent">Public torrent</a>
+                        file “aacid__upload_files_polish__proxy_target”
+                      </li>
+                    </ul>
+                    </body>
+                """.trimIndent()
+            )
+        val torrentBytes = "epub-from-proxied-metadata".toByteArray()
+
+        downloadService = DownloadService(
+            downloadJobRepository = downloadJobRepository,
+            bookRepository = bookRepository,
+            userLibraryRepository = userLibraryRepository,
+            solvearrClient = solvearrClient,
+            impersonatorHttpClient = impersonatorHttpClient,
+            mirrorService = mirrorService,
+            scraperConfig = proxyConfig,
+            metadataService = null,
+            torrentFallbackClient = torrentFallbackClient
+        )
+
+        every { mirrorService.getDownloadMirrors() } returns
+            listOf("https://annas-archive.gl")
+        coEvery {
+            solvearrClient.createSession("booksearch-annas-downloads", null)
+        } returns Unit
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gl/md5/$md5",
+                any(),
+                "booksearch-annas-downloads"
+            )
+        } throws ScraperException("Browser verification returned a challenge page")
+        coEvery {
+            solvearrClient.createSession(
+                "booksearch-annas-downloads-proxy",
+                "socks5://tor:9050"
+            )
+        } returns Unit
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gl/md5/$md5",
+                any(),
+                "booksearch-annas-downloads-proxy"
+            )
+        } returns PageWithCookies(detailHtml, emptyMap())
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gl/slow_download/") },
+                30_000,
+                "booksearch-annas-downloads-proxy"
+            )
+        } throws ScraperException("DDoS challenge timed out")
+        coEvery {
+            torrentFallbackClient.download(
+                any(),
+                md5,
+                "epub",
+                "https://annas-archive.gl",
+                any(),
+                any()
+            )
+        } returns torrentBytes
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerifyOrder {
+            solvearrClient.createSession("booksearch-annas-downloads", null)
+            solvearrClient.createSession(
+                "booksearch-annas-downloads-proxy",
+                "socks5://tor:9050"
+            )
+        }
+        coVerify(exactly = 1) {
+            torrentFallbackClient.download(
+                jobId,
+                md5,
+                "epub",
+                "https://annas-archive.gl",
+                match { it.fileLevel1 == "aacid__upload_files_polish__proxy_target" },
+                any()
+            )
+        }
+
+        File(proxyConfig.dataPath, status.filePath!!).delete()
+        Unit
+    }
+
+    @Test
+    fun shouldUseCachedTorrentMappingWhenDetailPageIsChallenged() = runBlocking {
+        val user = userRepository.create("cache@test.com", "hash", "Cache User", false, false)
+        val md5 = "cafebabecafebabecafebabecafebabe"
+        insertTestBook(md5)
+        val proxyConfig = scraperConfig.copy(
+            solvearrProxyUrl = "socks5://tor:9050"
+        )
+        val torrentFallbackClient = mockk<TorrentFallbackClient>()
+        val sourceRepository = DownloadSourceRepository(dsl)
+        val cachedLink = TorrentDownloadLink(
+            torrentUrl = "/dyn/small_file/torrents/cached.torrent",
+            fileLevel1 = "aacid__cached_target"
+        )
+        sourceRepository.upsertTorrent(
+            md5,
+            "https://annas-archive.gl",
+            cachedLink
+        )
+        val torrentBytes = "epub-from-cached-source".toByteArray()
+
+        downloadService = DownloadService(
+            downloadJobRepository = downloadJobRepository,
+            bookRepository = bookRepository,
+            userLibraryRepository = userLibraryRepository,
+            solvearrClient = solvearrClient,
+            impersonatorHttpClient = impersonatorHttpClient,
+            mirrorService = mirrorService,
+            scraperConfig = proxyConfig,
+            metadataService = null,
+            torrentFallbackClient = torrentFallbackClient,
+            downloadSourceRepository = sourceRepository
+        )
+
+        every { mirrorService.getDownloadMirrors() } returns
+            listOf("https://annas-archive.gd")
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gd/md5/$md5",
+                any(),
+                "booksearch-annas-downloads"
+            )
+        } throws ScraperException("Browser verification returned a challenge page")
+        coEvery {
+            torrentFallbackClient.download(
+                any(),
+                md5,
+                "epub",
+                "https://annas-archive.gd",
+                cachedLink,
+                any()
+            )
+        } returns torrentBytes
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerify(exactly = 1) {
+            torrentFallbackClient.download(
+                jobId,
+                md5,
+                "epub",
+                "https://annas-archive.gd",
+                cachedLink,
+                any()
+            )
+        }
+        coVerify(exactly = 0) {
+            solvearrClient.createSession(
+                "booksearch-annas-downloads-proxy",
+                any()
+            )
+        }
+
+        File(proxyConfig.dataPath, status.filePath!!).delete()
         Unit
     }
 
