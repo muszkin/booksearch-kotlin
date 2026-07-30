@@ -143,18 +143,23 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
     }
 
     companion object {
-        private val CHALLENGE_MARKERS = listOf(
+        private val STRONG_CHALLENGE_MARKERS = listOf(
             "DDoS protection by",
-            "DDoS-Guard",
             "Please Wait... | Cloudflare",
             "Checking your browser",
             "cf-browser-verification",
             "jschl-answer",
             "__ddg_challenge"
         )
+        private val CHALLENGE_TITLE = Regex(
+            """<title[^>]*>\s*(?:DDoS-Guard|Just a moment(?:\.\.\.)?|Please Wait\.\.\.\s*\|\s*Cloudflare)[^<]*</title>""",
+            RegexOption.IGNORE_CASE
+        )
 
         fun isChallengePage(html: String): Boolean {
-            return CHALLENGE_MARKERS.any { marker -> html.contains(marker, ignoreCase = true) }
+            return STRONG_CHALLENGE_MARKERS.any { marker ->
+                html.contains(marker, ignoreCase = true)
+            } || CHALLENGE_TITLE.containsMatchIn(html)
         }
     }
 }
