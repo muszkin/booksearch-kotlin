@@ -63,11 +63,11 @@ describe('AdminView — impersonation integration', () => {
     vi.mocked(AdminService.toggleRegistration).mockReturnValue(resolving({}))
   })
 
-  it('clicking Impersonate on user row calls store.startImpersonation and pushes /search', async () => {
+  it('clicking Impersonate on user row calls store.startImpersonation and replaces with /search', async () => {
     const router = createTestRouter()
     await router.push('/admin')
     await router.isReady()
-    const pushSpy = vi.spyOn(router, 'push')
+    const replaceSpy = vi.spyOn(router, 'replace')
 
     const authStore = useAuthStore()
     authStore.user = { ...adminUser }
@@ -86,6 +86,6 @@ describe('AdminView — impersonation integration', () => {
 
     expect(authStore.startImpersonation).toHaveBeenCalledTimes(1)
     expect(authStore.startImpersonation).toHaveBeenCalledWith(regularUser.id)
-    expect(pushSpy).toHaveBeenCalledWith('/search')
+    expect(replaceSpy).toHaveBeenCalledWith('/search')
   })
 })

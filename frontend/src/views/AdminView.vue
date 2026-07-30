@@ -36,7 +36,7 @@ async function handleImpersonate(userId: number) {
   impersonatingIds.value = new Set(impersonatingIds.value).add(userId)
   try {
     await authStore.startImpersonation(userId)
-    await router.push('/search')
+    await router.replace('/search')
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('Impersonation failed', e)

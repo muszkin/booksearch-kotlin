@@ -273,7 +273,8 @@ class AuthService(
                 targetDetails = kotlinx.serialization.json.buildJsonObject {
                     put("impersonated_by_admin_id", kotlinx.serialization.json.JsonPrimitive(admin.id))
                     put("admin_email", kotlinx.serialization.json.JsonPrimitive(admin.email))
-                }.toString()
+                }.toString(),
+                transactionDsl = conf.dsl()
             )
 
             LoginResponse(
@@ -320,7 +321,8 @@ class AuthService(
             }.toString(),
             targetDetails = kotlinx.serialization.json.buildJsonObject {
                 put("impersonated_by_admin_id", kotlinx.serialization.json.JsonPrimitive(admin.id))
-            }.toString()
+            }.toString(),
+            transactionDsl = conf.dsl()
         )
 
         return@transactionResult LoginResponse(
