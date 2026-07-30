@@ -8,12 +8,17 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.AddToLibraryRequest
+import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-fun Route.libraryRoutes(libraryService: LibraryService, activityLogService: ActivityLogService) {
+fun Route.libraryRoutes(
+    libraryService: LibraryService,
+    downloadService: DownloadService,
+    activityLogService: ActivityLogService
+) {
     authenticate("jwt") {
         route("/api/library") {
             get {
@@ -33,6 +38,7 @@ fun Route.libraryRoutes(libraryService: LibraryService, activityLogService: Acti
 
                 val request = call.receive<AddToLibraryRequest>()
                 val libraryBook = libraryService.addToLibrary(principal.userId, request.bookMd5, request.format)
+                downloadService.startDownload(principal.userId, request.bookMd5)
                 call.respond(HttpStatusCode.Created, libraryBook)
             }
 

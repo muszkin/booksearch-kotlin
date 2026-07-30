@@ -24,6 +24,7 @@ class SolvearrClientTest {
                 "url": "https://annas-archive.org/md5/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
                 "status": 200,
                 "response": "<html><body>Detail page</body></html>",
+                "userAgent": "FlareSolverrAgent/1.0",
                 "cookies": [
                     {"name": "cf_clearance", "value": "abc123xyz", "domain": ".annas-archive.org", "path": "/", "expiry": 1700000000, "httpOnly": false, "secure": true},
                     {"name": "session_id", "value": "sess456", "domain": ".annas-archive.org", "path": "/", "expiry": 1700000000, "httpOnly": true, "secure": true}
@@ -57,6 +58,7 @@ class SolvearrClientTest {
         assertEquals(2, result.cookies.size)
         assertEquals("abc123xyz", result.cookies["cf_clearance"])
         assertEquals("sess456", result.cookies["session_id"])
+        assertEquals("FlareSolverrAgent/1.0", result.userAgent)
 
         client.close()
     }

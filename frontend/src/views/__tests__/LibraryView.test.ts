@@ -17,6 +17,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
     DownloadService: {
       startDownload: vi.fn(),
       getDownloadStatus: vi.fn(),
+      getDownloadJobs: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
     },
     ConvertService: {
       startConversion: vi.fn(),

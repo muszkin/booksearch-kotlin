@@ -5,6 +5,7 @@ import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -91,8 +92,12 @@ class GapAnalysisPhase3Test {
         insertTestBook("ff00ff00ff00ff00ff00ff00ff00ff00")
         userLibraryRepository.add(user.id!!, "ff00ff00ff00ff00ff00ff00ff00ff00", "epub")
 
-        coEvery { mirrorService.getActiveMirror() } returns "https://annas-archive.org"
-        coEvery { solvearrClient.fetchPageWithCookies(any()) } throws ScraperException("Solvearr unavailable")
+        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        coEvery { solvearrClient.createSession(any()) } returns Unit
+        coEvery { solvearrClient.destroySession(any()) } returns Unit
+        coEvery {
+            solvearrClient.fetchPageWithCookies(any(), any(), any())
+        } throws ScraperException("Solvearr unavailable")
 
         val jobId = runBlocking {
             downloadService.startDownload(user.id!!, "ff00ff00ff00ff00ff00ff00ff00ff00")
@@ -154,12 +159,18 @@ class GapAnalysisPhase3Test {
             </body></html>
         """.trimIndent()
 
-        coEvery { mirrorService.getActiveMirror() } returns "https://annas-archive.org"
-        coEvery { solvearrClient.fetchPageWithCookies(match { it.contains("/md5/") }) } returns
+        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        coEvery { solvearrClient.createSession(any()) } returns Unit
+        coEvery { solvearrClient.destroySession(any()) } returns Unit
+        coEvery {
+            solvearrClient.fetchPageWithCookies(match { it.contains("/md5/") }, any(), any())
+        } returns
                 PageWithCookies(html = detailHtml, cookies = mapOf("cf" to "val"))
-        coEvery { solvearrClient.fetchPageWithCookies(match { it.contains("slow_download") }) } returns
+        coEvery {
+            solvearrClient.fetchPageWithCookies(match { it.contains("slow_download") }, any(), any())
+        } returns
                 PageWithCookies(html = slowDownloadHtml, cookies = emptyMap())
-        coEvery { impersonatorHttpClient.fetchBinary(any(), any()) } throws
+        coEvery { impersonatorHttpClient.fetchBinary(any(), any(), any()) } throws
                 ScraperException("Connection reset")
 
         val jobId = runBlocking {
@@ -223,12 +234,18 @@ class GapAnalysisPhase3Test {
             </body></html>
         """.trimIndent()
 
-        coEvery { mirrorService.getActiveMirror() } returns "https://annas-archive.org"
-        coEvery { solvearrClient.fetchPageWithCookies(match { it.contains("/md5/") }) } returns
+        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        coEvery { solvearrClient.createSession(any()) } returns Unit
+        coEvery { solvearrClient.destroySession(any()) } returns Unit
+        coEvery {
+            solvearrClient.fetchPageWithCookies(match { it.contains("/md5/") }, any(), any())
+        } returns
                 PageWithCookies(html = detailHtml, cookies = mapOf("cf" to "val"))
-        coEvery { solvearrClient.fetchPageWithCookies(match { it.contains("slow_download") }) } returns
+        coEvery {
+            solvearrClient.fetchPageWithCookies(match { it.contains("slow_download") }, any(), any())
+        } returns
                 PageWithCookies(html = slowDownloadHtml, cookies = emptyMap())
-        coEvery { impersonatorHttpClient.fetchBinary(any(), any()) } returns
+        coEvery { impersonatorHttpClient.fetchBinary(any(), any(), any()) } returns
                 "fake epub content".toByteArray()
 
         val jobId = runBlocking {
@@ -391,7 +408,7 @@ class GapAnalysisPhase3Test {
         insertTestBook("dd00dd00dd00dd00dd00dd00dd00dd00")
         userLibraryRepository.add(user.id!!, "dd00dd00dd00dd00dd00dd00dd00dd00", "epub")
 
-        coEvery { mirrorService.getActiveMirror() } returns null
+        every { mirrorService.getWorkingMirrors() } returns emptyList()
 
         val jobId = runBlocking {
             downloadService.startDownload(user.id!!, "dd00dd00dd00dd00dd00dd00dd00dd00")

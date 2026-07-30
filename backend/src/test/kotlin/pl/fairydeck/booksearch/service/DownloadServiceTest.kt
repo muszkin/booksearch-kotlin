@@ -1,7 +1,9 @@
 package pl.fairydeck.booksearch.service
 
 import io.mockk.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.jooq.DSLContext
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -12,6 +14,8 @@ import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
+import java.io.File
+import java.util.concurrent.CountDownLatch
 
 class DownloadServiceTest {
 
@@ -45,6 +49,8 @@ class DownloadServiceTest {
         solvearrClient = mockk()
         impersonatorHttpClient = mockk()
         mirrorService = mockk()
+        coEvery { solvearrClient.createSession(any()) } returns Unit
+        coEvery { solvearrClient.destroySession(any()) } returns Unit
 
         downloadService = DownloadService(
             downloadJobRepository = downloadJobRepository,
@@ -136,6 +142,121 @@ class DownloadServiceTest {
     }
 
     @Test
+    fun shouldReuseActiveJobInsteadOfCreatingDuplicateDownload() {
+        val user = userRepository.create("dedupe@test.com", "hash", "Dedupe User", false, false)
+        val md5 = "1234567890abcdef1234567890abcdef"
+        insertTestBook(md5)
+        val releaseWorker = CountDownLatch(1)
+        every { mirrorService.getWorkingMirrors() } answers {
+            releaseWorker.await()
+            emptyList()
+        }
+
+        val firstJobId = runBlocking {
+            downloadService.startDownload(user.id!!, md5)
+        }
+        val secondJobId = runBlocking {
+            downloadService.startDownload(user.id!!, md5)
+        }
+        releaseWorker.countDown()
+
+        assertEquals(firstJobId, secondJobId)
+        assertEquals(
+            1,
+            downloadJobRepository.findAllByUserId(user.id!!).totalCount
+        )
+    }
+
+    @Test
+    fun shouldRotateToNextMirrorWhenSlowDownloadChallengeTimesOut() = runBlocking {
+        val user = userRepository.create("rotation@test.com", "hash", "Rotation User", false, false)
+        val md5 = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+        insertTestBook(md5)
+        val detailHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-detail-page.html")!!
+            .readText()
+        val slowDownloadHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-slow-download-page.html")!!
+            .readText()
+
+        every { mirrorService.getWorkingMirrors() } returns listOf(
+            "https://annas-archive.gl",
+            "https://annas-archive.gd"
+        )
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gl/md5/$md5",
+                any(),
+                any()
+            )
+        } returns PageWithCookies(detailHtml, mapOf("detail" to "cookie"))
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gl/slow_download/") },
+                30_000,
+                any()
+            )
+        } throws ScraperException("DDoS challenge timed out")
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gd/slow_download/") },
+                30_000,
+                any()
+            )
+        } returns PageWithCookies(
+            slowDownloadHtml,
+            mapOf("slow" to "cookie"),
+            "FlareSolverrAgent"
+        )
+        coEvery {
+            impersonatorHttpClient.fetchBinary(any(), any(), any())
+        } returns "epub-content".toByteArray()
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerify {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gd/slow_download/") },
+                30_000,
+                any()
+            )
+        }
+        coVerify { solvearrClient.createSession(match { it.startsWith("booksearch-$jobId-") }) }
+        coVerify { solvearrClient.destroySession(match { it.startsWith("booksearch-$jobId-") }) }
+        coVerify {
+            impersonatorHttpClient.fetchBinary(
+                any(),
+                any(),
+                "FlareSolverrAgent"
+            )
+        }
+        assertEquals(
+            mapOf("detail" to "cookie", "slow" to "cookie"),
+            captureBinaryCookies()
+        )
+
+        File(scraperConfig.dataPath, status.filePath!!).delete()
+    }
+
+    @Test
+    fun shouldResumeQueuedJobsAfterApplicationStartup() = runBlocking {
+        val user = userRepository.create("resume@test.com", "hash", "Resume User", false, false)
+        val md5 = "abcdefabcdefabcdefabcdefabcdefab"
+        insertTestBook(md5)
+        userLibraryRepository.add(user.id!!, md5, "epub")
+        val jobId = downloadJobRepository.create(user.id!!, md5, "epub")
+        every { mirrorService.getWorkingMirrors() } returns emptyList()
+
+        downloadService.resumePendingJobs()
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("failed", status.status)
+        assertTrue(status.error!!.contains("No working mirror"))
+    }
+
+    @Test
     fun shouldUpdateJobProgress() {
         val user = userRepository.create("progress@test.com", "hash", "Progress User", false, false)
         insertTestBook("aabb00112233445566778899aabb0011")
@@ -169,5 +290,23 @@ class DownloadServiceTest {
                 )
             )
         )
+    }
+
+    private suspend fun awaitTerminalStatus(jobId: Int, userId: Int): DownloadJobStatus =
+        withTimeout(5_000) {
+            while (true) {
+                val status = downloadService.getJobStatus(jobId, userId)!!
+                if (status.status in listOf("completed", "failed")) {
+                    return@withTimeout status
+                }
+                delay(10)
+            }
+            error("unreachable")
+        }
+
+    private fun captureBinaryCookies(): Map<String, String> {
+        val cookies = slot<Map<String, String>>()
+        coVerify { impersonatorHttpClient.fetchBinary(any(), capture(cookies), any()) }
+        return cookies.captured
     }
 }

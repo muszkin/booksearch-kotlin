@@ -87,6 +87,21 @@ class MirrorServiceTest {
     }
 
     @Test
+    fun getWorkingMirrorsReturnsAllHealthyMirrorsOrderedByResponseTime() {
+        mirrorRepository.upsert("annas-archive.gd", "https://annas-archive.gd", true, 300)
+        mirrorRepository.upsert("annas-archive.pk", "https://annas-archive.pk", false, 50)
+        mirrorRepository.upsert("annas-archive.gl", "https://annas-archive.gl", true, 100)
+        mirrorRepository.upsert("annas-archive.li", "https://annas-archive.li", true, 10)
+
+        val mirrors = mirrorService.getWorkingMirrors()
+
+        assertEquals(
+            listOf("https://annas-archive.gl", "https://annas-archive.gd"),
+            mirrors
+        )
+    }
+
+    @Test
     fun getActiveMirrorReturnsNullWhenNoMirrorsAvailable() {
         val baseUrl = mirrorService.getActiveMirror()
 
@@ -96,10 +111,20 @@ class MirrorServiceTest {
     @Test
     fun checkAllDomainsMarksWorkingAndUnreachableDomains() {
         coEvery { solvearrClient.fetchPage("https://annas-archive.gd") } returns
-            "<html><head><title>Anna's Archive</title></head><body>" + "x".repeat(2000) + "</body></html>"
+            """
+                <html>
+                  <head><title>Anna's Archive</title></head>
+                  <body><form action="/search"><input name="q"></form></body>
+                </html>
+            """.trimIndent()
         coEvery { solvearrClient.fetchPage("https://annas-archive.pk") } throws RuntimeException("Connection refused")
         coEvery { solvearrClient.fetchPage("https://annas-archive.gl") } returns
-            "<html><head><title>Redirecting...</title></head><body>short</body></html>"
+            """
+                <html>
+                  <head><title>Redirecting...</title></head>
+                  <body><a href="https://ads.example">Continue</a></body>
+                </html>
+            """.trimIndent()
 
         kotlinx.coroutines.runBlocking { mirrorService.checkAllDomains() }
 

@@ -16,7 +16,7 @@ import type {
 } from '@/api/generated'
 
 const POLL_INTERVAL_MS = 5000
-const TERMINAL_DOWNLOAD_STATUSES = ['completed', 'failed']
+const TERMINAL_DOWNLOAD_STATUSES = ['completed', 'failed', 'cancelled']
 const TERMINAL_CONVERSION_STATUSES = ['completed', 'failed']
 
 export const useLibraryStore = defineStore('library', () => {
@@ -70,6 +70,69 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
+  function updateDownloadStatus(bookMd5: string, status: DownloadStatusResponse) {
+    const updated = new Map(activeDownloads.value)
+    updated.set(bookMd5, status)
+    activeDownloads.value = updated
+  }
+
+  function pollDownload(bookMd5: string, jobId: number) {
+    if (downloadIntervals.has(bookMd5)) return
+
+    const intervalId = setInterval(async () => {
+      try {
+        const status = await DownloadService.getDownloadStatus(jobId)
+        updateDownloadStatus(bookMd5, status)
+
+        if (TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
+          clearInterval(intervalId)
+          downloadIntervals.delete(bookMd5)
+
+          if (status.status === 'completed') {
+            await fetchLibrary(pagination.value.page)
+          }
+        }
+      } catch {
+        const current = activeDownloads.value.get(bookMd5)
+        if (current) {
+          updateDownloadStatus(bookMd5, {
+            ...current,
+            error: 'Status updates are temporarily unavailable. Retrying…',
+          })
+        }
+      }
+    }, POLL_INTERVAL_MS)
+
+    downloadIntervals.set(bookMd5, intervalId)
+  }
+
+  async function fetchDownloadStatuses() {
+    try {
+      const response = await DownloadService.getDownloadJobs(undefined, 1, 100)
+      const latestByBook = new Map<string, DownloadStatusResponse>()
+
+      for (const job of response.items) {
+        if (latestByBook.has(job.bookMd5)) continue
+        latestByBook.set(job.bookMd5, {
+          jobId: job.jobId,
+          status: job.status,
+          progress: job.progress,
+          filePath: job.filePath,
+          error: job.error,
+        })
+      }
+
+      activeDownloads.value = latestByBook
+      for (const [bookMd5, status] of latestByBook) {
+        if (!TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
+          pollDownload(bookMd5, status.jobId)
+        }
+      }
+    } catch {
+      // The library remains usable even when historical job state is unavailable.
+    }
+  }
+
   async function fetchDeviceSettings() {
     try {
       const settings = await SettingsService.getAllSettings()
@@ -106,32 +169,8 @@ export const useLibraryStore = defineStore('library', () => {
         progress: 0,
       }
 
-      const next = new Map(activeDownloads.value)
-      next.set(bookMd5, initialStatus)
-      activeDownloads.value = next
-
-      const intervalId = setInterval(async () => {
-        try {
-          const status = await DownloadService.getDownloadStatus(started.jobId)
-          const updated = new Map(activeDownloads.value)
-          updated.set(bookMd5, status)
-          activeDownloads.value = updated
-
-          if (TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
-            clearInterval(intervalId)
-            downloadIntervals.delete(bookMd5)
-
-            if (status.status === 'completed') {
-              await fetchLibrary(pagination.value.page)
-            }
-          }
-        } catch {
-          clearInterval(intervalId)
-          downloadIntervals.delete(bookMd5)
-        }
-      }, POLL_INTERVAL_MS)
-
-      downloadIntervals.set(bookMd5, intervalId)
+      updateDownloadStatus(bookMd5, initialStatus)
+      pollDownload(bookMd5, started.jobId)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to start download'
     }
@@ -246,6 +285,7 @@ export const useLibraryStore = defineStore('library', () => {
     isConverting,
     getDeliveries,
     fetchLibrary,
+    fetchDownloadStatuses,
     fetchDeviceSettings,
     fetchDeliveries,
     startDownloadPolling,

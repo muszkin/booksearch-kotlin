@@ -59,6 +59,25 @@ In Portainer, the named volume is created automatically. To use a specific host 
 
 The SQLite database and library files persist across redeployments through the named volume.
 
+## FlareSolverr Recovery
+
+The stack includes an `autoheal` service that monitors only containers labelled
+`booksearch.autoheal=true`. Every 30 minutes FlareSolverr's health check opens a
+small test page through its real browser API. Two consecutive failures mark the
+container unhealthy, and autoheal restarts it.
+
+This is health-based rather than a fixed 24-hour restart. A scheduled restart
+can interrupt an active book download while doing nothing for source-specific
+DDoS challenges. The backend handles those challenges separately by rotating
+through the currently working Anna's Archive mirrors. The production Compose
+file pins `MIRROR_DOMAINS` to the current `.gd`, `.pk`, and `.gl` domains so an
+older `.env` file cannot re-enable retired mirrors.
+
+`autoheal` needs the Docker socket mounted in order to restart the labelled
+container. Do not change `AUTOHEAL_CONTAINER_LABEL` to `all`; the
+`booksearch.autoheal` label deliberately prevents it from managing unrelated
+Portainer stacks.
+
 ## Production Considerations
 
 - Remove the `mailpit` service from the compose file (or simply do not expose its ports) and set `SMTP_HOST` / `SMTP_PORT` to your real mail server.

@@ -163,6 +163,7 @@ fun Application.module() {
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
         mirrorService.refreshMirrors()
+        downloadService.resumePendingJobs()
         while (true) {
             delay(mirrorRefreshIntervalMs)
             try {
@@ -329,7 +330,7 @@ private fun Application.configureRouting(
         adminRoutes(authService)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
-        libraryRoutes(libraryService, activityLogService)
+        libraryRoutes(libraryService, downloadService, activityLogService)
         downloadRoutes(downloadService, downloadJobRepository, activityLogService)
         convertRoutes(conversionService, activityLogService)
         deliverRoutes(deliveryService, activityLogService)

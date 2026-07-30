@@ -32,6 +32,12 @@ class MirrorRepository(private val dsl: DSLContext) {
             .limit(1)
             .fetchOne()
 
+    fun findWorking(): List<MirrorsRecord> =
+        dsl.selectFrom(MIRRORS)
+            .where(MIRRORS.IS_WORKING.eq(1))
+            .orderBy(MIRRORS.RESPONSE_TIME_MS.asc())
+            .fetch()
+
     fun findAll(): List<MirrorsRecord> =
         dsl.selectFrom(MIRRORS)
             .orderBy(MIRRORS.RESPONSE_TIME_MS.asc().nullsLast())

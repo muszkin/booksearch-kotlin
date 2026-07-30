@@ -28,7 +28,7 @@ describe('DownloadProgressBar', () => {
 
   it('renders failed state with error styling', () => {
     const wrapper = mount(DownloadProgressBar, {
-      props: { status: 'failed', progress: 0, error: 'Download timeout' },
+      props: { status: 'failed', progress: 40, error: 'Download timeout' },
     })
 
     expect(wrapper.text()).toMatch(/failed/i)
@@ -36,6 +36,17 @@ describe('DownloadProgressBar', () => {
 
     const bar = wrapper.find('[role="progressbar"]')
     expect(bar.exists()).toBe(true)
+    expect(bar.attributes('aria-valuenow')).toBe('40')
+    expect(bar.find('div').attributes('style')).toContain('width: 40%')
     expect(wrapper.html()).toContain('red-400')
+  })
+
+  it('uses readable labels for source-specific progress stages', () => {
+    const wrapper = mount(DownloadProgressBar, {
+      props: { status: 'fetching_slow_download', progress: 40 },
+    })
+
+    expect(wrapper.text()).toContain('Waiting for download link')
+    expect(wrapper.text()).toContain('40%')
   })
 })

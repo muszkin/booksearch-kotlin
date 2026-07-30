@@ -38,15 +38,38 @@ class HtmlParserDownloadTest {
         val md5 = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
         val fileUrl = HtmlParser.parseSlowDownloadPageFileUrl(slowDownloadPageHtml, md5)
 
-        assertNotNull(fileUrl, "Should find a download link containing first 12 chars of md5")
-        assertEquals("https://download.example.com/file/a1b2c3d4e5f6/some-book-title.epub", fileUrl)
+        assertNotNull(fileUrl, "Should find the structurally marked temporary download link")
+        assertEquals(
+            "https://download.example.com/anon/temporary-token/some-book-title.epub",
+            fileUrl
+        )
     }
 
     @Test
     fun shouldReturnNullWhenNoMatchingMd5InSlowDownloadPage() {
         val nonExistentMd5 = "ffffffffffffffffffffffffffffffff"
-        val fileUrl = HtmlParser.parseSlowDownloadPageFileUrl(slowDownloadPageHtml, nonExistentMd5)
+        val htmlWithoutStructuredLink = """
+            <html><body>
+              <a href="https://download.example.com/file/a1b2c3d4e5f6/book.epub">Other file</a>
+            </body></html>
+        """.trimIndent()
+        val fileUrl = HtmlParser.parseSlowDownloadPageFileUrl(
+            htmlWithoutStructuredLink,
+            nonExistentMd5
+        )
 
         assertNull(fileUrl, "Should return null when md5 prefix not found in any href")
+    }
+
+    @Test
+    fun shouldExtractWaitSecondsFromDownloadSlotPage() {
+        val html = """
+            <html><body>
+              <span class="js-partner-countdown">42</span>
+              <script>let waitSeconds = 42;</script>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(42, HtmlParser.parseSlowDownloadWaitSeconds(html))
     }
 }

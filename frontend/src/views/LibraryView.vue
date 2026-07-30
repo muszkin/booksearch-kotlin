@@ -19,7 +19,8 @@ const backfillMessage = ref<string | null>(null)
 const hasSelection = computed(() => selectedIds.value.size > 0)
 const selectionCount = computed(() => selectedIds.value.size)
 const allSelected = computed(() =>
-  store.books.length > 0 && store.books.every((b) => selectedIds.value.has(b.id)),
+  store.books.some((book) => !!book.filePath) &&
+  store.books.filter((book) => !!book.filePath).every((book) => selectedIds.value.has(book.id)),
 )
 
 function toggleSelect(bookId: number) {
@@ -36,7 +37,9 @@ function toggleSelectAll() {
   if (allSelected.value) {
     selectedIds.value = new Set()
   } else {
-    selectedIds.value = new Set(store.books.map((b) => b.id))
+    selectedIds.value = new Set(
+      store.books.filter((book) => !!book.filePath).map((book) => book.id),
+    )
   }
 }
 
@@ -58,8 +61,9 @@ async function handleBatchDownload() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(() => {
-  store.fetchLibrary(1)
+onMounted(async () => {
+  await store.fetchLibrary(1)
+  await store.fetchDownloadStatuses()
   store.fetchDeviceSettings()
   store.fetchDeliveries()
 })
@@ -178,6 +182,8 @@ function handleRemove(bookId: number) {
               type="checkbox"
               data-testid="library-select-checkbox"
               :checked="selectedIds.has(book.id)"
+              :disabled="!book.filePath"
+              :title="book.filePath ? `Select ${book.title}` : 'Available after download completes'"
               class="w-5 h-5 rounded border-zinc-600 bg-zinc-700 text-violet-400 focus:ring-violet-400 focus:ring-offset-zinc-900"
               :aria-label="`Select ${book.title}`"
               @change="toggleSelect(book.id)"

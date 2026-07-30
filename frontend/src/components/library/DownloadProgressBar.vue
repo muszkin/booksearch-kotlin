@@ -9,10 +9,15 @@ const props = defineProps<{
 
 const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
-  downloading: 'Downloading',
+  fetching_detail: 'Opening book page',
+  fetching_slow_download: 'Waiting for download link',
+  waiting_for_download_slot: 'Waiting for a free download slot',
+  downloading: 'Downloading file',
+  downloading_file: 'Downloading file',
   extracting_metadata: 'Extracting metadata',
   completed: 'Completed',
   failed: 'Failed',
+  cancelled: 'Cancelled',
 }
 
 const barColorClass = computed(() => {
@@ -22,7 +27,7 @@ const barColorClass = computed(() => {
 })
 
 const showPercentage = computed(() =>
-  props.status !== 'queued' && props.status !== 'failed',
+  props.status !== 'queued' && props.status !== 'cancelled',
 )
 
 const statusLabel = computed(() =>
@@ -42,7 +47,7 @@ const statusLabel = computed(() =>
       <div
         :class="barColorClass"
         class="h-full rounded-full transition-all duration-500 ease-out"
-        :style="{ width: `${status === 'failed' ? 100 : progress}%` }"
+        :style="{ width: `${progress}%` }"
       />
     </div>
 
@@ -56,7 +61,11 @@ const statusLabel = computed(() =>
       </span>
     </div>
 
-    <p v-if="error && status === 'failed'" class="mt-0.5 text-xs text-red-400">
+    <p
+      v-if="error"
+      class="mt-0.5 break-words text-xs"
+      :class="status === 'failed' ? 'text-red-400' : 'text-amber-400'"
+    >
       {{ error }}
     </p>
   </div>

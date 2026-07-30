@@ -29,6 +29,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
     DownloadService: {
       startDownload: vi.fn(),
       getDownloadStatus: vi.fn(),
+      getDownloadJobs: vi.fn(),
     },
     ConvertService: {
       startConversion: vi.fn(),
@@ -214,6 +215,59 @@ describe('useLibraryStore', () => {
     expect(DownloadService.getDownloadStatus).not.toHaveBeenCalled()
 
     store.cleanup()
+  })
+
+  it('restores failed and active download states when the library is opened', async () => {
+    vi.mocked(DownloadService.getDownloadJobs).mockReturnValue(
+      resolving({
+        items: [
+          {
+            jobId: 12,
+            bookMd5: 'failed-book',
+            format: 'epub',
+            status: 'failed',
+            progress: 40,
+            error: 'DDoS challenge timed out',
+            createdAt: '2026-07-30T12:00:00Z',
+            updatedAt: '2026-07-30T12:05:00Z',
+          },
+          {
+            jobId: 11,
+            bookMd5: 'active-book',
+            format: 'epub',
+            status: 'fetching_slow_download',
+            progress: 40,
+            createdAt: '2026-07-30T11:00:00Z',
+            updatedAt: '2026-07-30T11:01:00Z',
+          },
+        ],
+        totalCount: 2,
+      }),
+    )
+    vi.mocked(DownloadService.getDownloadStatus).mockReturnValue(
+      resolving({
+        jobId: 11,
+        status: 'completed',
+        progress: 100,
+        filePath: '/books/active.epub',
+      }),
+    )
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(resolving(mockLibraryResponse))
+
+    const store = useLibraryStore()
+    await store.fetchDownloadStatuses()
+
+    expect(DownloadService.getDownloadJobs).toHaveBeenCalledWith(undefined, 1, 100)
+    expect(store.activeDownloads.get('failed-book')).toMatchObject({
+      status: 'failed',
+      progress: 40,
+      error: 'DDoS challenge timed out',
+    })
+    expect(store.activeDownloads.get('active-book')?.status).toBe('fetching_slow_download')
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(DownloadService.getDownloadStatus).toHaveBeenCalledWith(11)
+    expect(store.activeDownloads.get('active-book')?.status).toBe('completed')
   })
 
   it('startConversionPolling tracks conversion status', async () => {

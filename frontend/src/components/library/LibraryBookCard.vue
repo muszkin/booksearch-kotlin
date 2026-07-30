@@ -33,9 +33,22 @@ const hasFile = computed(() => !!props.book.filePath)
 
 const isDownloadActive = computed(() => {
   if (!props.downloadStatus) return false
-  const terminalWithFile = props.downloadStatus.status === 'completed' && hasFile.value
-  const failed = props.downloadStatus.status === 'failed'
-  return !terminalWithFile && !failed
+  return !['completed', 'failed', 'cancelled'].includes(props.downloadStatus.status)
+})
+
+const showDownloadStatus = computed(() => {
+  if (!props.downloadStatus) return false
+  return !hasFile.value
+})
+
+const downloadAvailabilityNote = computed(() => {
+  if (props.downloadStatus?.status === 'failed') {
+    return 'Download failed. Retry before converting or sending this book.'
+  }
+  if (['completed', 'cancelled'].includes(props.downloadStatus?.status ?? '')) {
+    return 'The file is not available. Retry the download to unlock file actions.'
+  }
+  return 'The book is still downloading. File actions will unlock when it is ready.'
 })
 
 const isConversionActive = computed(() => {
@@ -117,7 +130,7 @@ const formattedDate = computed(() => {
           </span>
         </div>
 
-        <div v-if="isDownloadActive && downloadStatus" class="mt-3">
+        <div v-if="showDownloadStatus && downloadStatus" class="mt-3">
           <DownloadProgressBar
             :status="downloadStatus.status"
             :progress="downloadStatus.progress"
@@ -135,6 +148,14 @@ const formattedDate = computed(() => {
     </div>
 
     <div class="flex items-center gap-2 px-4 py-3 border-t border-zinc-700 flex-wrap">
+      <p
+        v-if="!hasFile"
+        data-testid="download-pending-note"
+        class="basis-full text-xs text-zinc-400"
+      >
+        {{ downloadAvailabilityNote }}
+      </p>
+
       <BaseButton
         v-if="hasFile"
         data-testid="download-file-btn"
@@ -160,7 +181,8 @@ const formattedDate = computed(() => {
           :data-testid="`convert-${format}-btn`"
           variant="secondary"
           class="text-xs px-3 py-1"
-          :disabled="isConversionActive"
+          :disabled="!hasFile || isConversionActive"
+          :title="hasFile ? undefined : 'Available after download completes'"
           @click="emit('convert', format)"
         >
           To {{ format.toUpperCase() }}
@@ -173,7 +195,8 @@ const formattedDate = computed(() => {
         variant="ghost"
         class="text-xs px-3 py-1"
         :loading="props.deliveryLoading"
-        :disabled="props.deliveryLoading"
+        :disabled="!hasFile || props.deliveryLoading"
+        :title="hasFile ? undefined : 'Available after download completes'"
         @click="emit('deliver', 'kindle')"
       >
         Send to Kindle
@@ -185,7 +208,8 @@ const formattedDate = computed(() => {
         variant="ghost"
         class="text-xs px-3 py-1"
         :loading="props.deliveryLoading"
-        :disabled="props.deliveryLoading"
+        :disabled="!hasFile || props.deliveryLoading"
+        :title="hasFile ? undefined : 'Available after download completes'"
         @click="emit('deliver', 'pocketbook')"
       >
         Send to PocketBook

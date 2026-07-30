@@ -1,6 +1,7 @@
 package pl.fairydeck.booksearch.service
 
 import org.slf4j.LoggerFactory
+import pl.fairydeck.booksearch.infrastructure.HtmlParser
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 import pl.fairydeck.booksearch.repository.MirrorRepository
@@ -14,7 +15,12 @@ class MirrorService(
     private val logger = LoggerFactory.getLogger(MirrorService::class.java)
 
     fun getActiveMirror(): String? =
-        mirrorRepository.findBestWorking()?.baseUrl
+        getWorkingMirrors().firstOrNull()
+
+    fun getWorkingMirrors(): List<String> =
+        mirrorRepository.findWorking()
+            .filter { it.domain in config.domains }
+            .mapNotNull { it.baseUrl }
 
     suspend fun checkAllDomains() {
         for (domain in config.domains) {
@@ -24,8 +30,7 @@ class MirrorService(
                 val html = solvearrClient.fetchPage(baseUrl)
                 val responseTimeMs = (System.currentTimeMillis() - startTime).toInt()
 
-                val isWorking = html.isNotBlank() && html.length > 1000
-                    && !html.contains("Redirecting...")
+                val isWorking = HtmlParser.isAnnaArchivePage(html)
 
                 mirrorRepository.upsert(domain, baseUrl, isWorking, responseTimeMs)
                 logger.info("Mirror {} checked: working={}, responseTime={}ms, htmlLength={}", domain, isWorking, responseTimeMs, html.length)

@@ -91,7 +91,11 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         }
     }
 
-    suspend fun fetchBinary(url: String, cookies: Map<String, String>): ByteArray {
+    suspend fun fetchBinary(
+        url: String,
+        cookies: Map<String, String>,
+        userAgent: String = config.userAgent
+    ): ByteArray {
         enforceRateLimit()
 
         var lastException: Exception? = null
@@ -104,7 +108,7 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
 
                     val request = Request.Builder()
                         .url(url)
-                        .header("User-Agent", config.userAgent)
+                        .header("User-Agent", userAgent.ifBlank { config.userAgent })
                         .header("Accept", "*/*")
                         .header("Cookie", cookieHeader)
                         .build()

@@ -14,8 +14,10 @@ object HtmlParser {
     private const val DOWNLOADS_PANEL_SELECTOR = "div#md5-panel-downloads"
     private const val SLOW_DOWNLOAD_LINK_SELECTOR = "a[href*=slow_download]"
     private const val NO_WAITLIST_MARKER = "no waitlist"
+    private const val DOWNLOAD_LINK_SELECTOR = "p.text-xl.font-bold a[href^=http]"
     private const val MD5_PREFIX_LENGTH = 12
     private val MD5_PATTERN = Regex("/md5/([a-f0-9]{32})")
+    private val WAIT_SECONDS_PATTERN = Regex("""waitSeconds\s*=\s*(\d+)""")
 
     fun parseSearchResults(html: String): List<ParsedBookEntry> {
         if (html.isBlank()) return emptyList()
@@ -104,7 +106,7 @@ object HtmlParser {
 
         val links = panel.select(SLOW_DOWNLOAD_LINK_SELECTOR).map { anchor ->
             val url = anchor.attr("href")
-            val text = anchor.text()
+            val text = anchor.parent()?.text().orEmpty().ifBlank { anchor.text() }
             val noWaitlist = text.contains(NO_WAITLIST_MARKER, ignoreCase = true)
             DownloadLink(url = url, label = text.trim(), noWaitlist = noWaitlist)
         }
@@ -118,11 +120,45 @@ object HtmlParser {
         val md5Prefix = md5.take(MD5_PREFIX_LENGTH)
         val document = Jsoup.parse(html)
 
+        val structuredDownloadUrl = document.selectFirst(DOWNLOAD_LINK_SELECTOR)
+            ?.attr("href")
+            ?.takeIf { it.startsWith("http") }
+        if (structuredDownloadUrl != null) return structuredDownloadUrl
+
         return document.select("a[href]")
             .map { it.attr("href") }
             .firstOrNull { href ->
                 href.contains(md5Prefix) && href.startsWith("http")
             }
+    }
+
+    fun parseSlowDownloadWaitSeconds(html: String): Int? {
+        if (html.isBlank()) return null
+
+        val document = Jsoup.parse(html)
+        document.selectFirst("span.js-partner-countdown")
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+            ?.let { return it }
+
+        return WAIT_SECONDS_PATTERN.find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+    }
+
+    fun isAnnaArchivePage(html: String): Boolean {
+        if (html.isBlank()) return false
+
+        val document = Jsoup.parse(html)
+        val hasExpectedTitle = document.title()
+            .contains("Anna", ignoreCase = true)
+        val hasSearchNavigation = document.select(
+            "form[action*=search], a[href^=/search], input[name=q]"
+        ).isNotEmpty()
+
+        return hasExpectedTitle && hasSearchNavigation
     }
 
     private data class FormatInfo(

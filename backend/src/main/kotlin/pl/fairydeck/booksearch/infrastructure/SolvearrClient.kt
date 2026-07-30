@@ -20,6 +20,7 @@ class SolvearrClient(
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        explicitNulls = false
     }
 
     private val httpClient = httpClientOverride ?: HttpClient(OkHttp) {
@@ -37,30 +38,33 @@ class SolvearrClient(
         return fetchPageWithCookies(url).html
     }
 
-    suspend fun fetchPageWithCookies(url: String): PageWithCookies {
+    suspend fun fetchPageWithCookies(
+        url: String,
+        maxTimeoutMs: Int = SOLVEARR_TIMEOUT_MS,
+        sessionId: String? = null
+    ): PageWithCookies {
         val requestBody = SolvearrRequest(
             cmd = "request.get",
             url = url,
-            maxTimeout = SOLVEARR_TIMEOUT_MS
+            maxTimeout = maxTimeoutMs,
+            session = sessionId
         )
 
         return try {
-            val response = httpClient.post("${config.solvearrUrl}/v1") {
-                contentType(ContentType.Application.Json)
-                setBody(json.encodeToString(requestBody))
-            }
+            val (httpStatus, solvearrResponse) = execute(requestBody)
 
-            if (!response.status.isSuccess()) {
-                logger.error("Solvearr returned status {} for URL: {}", response.status, url)
-                throw ScraperException("Solvearr request failed with status ${response.status}")
-            }
-
-            val responseBody = response.bodyAsText()
-            val solvearrResponse = json.decodeFromString<SolvearrResponse>(responseBody)
-
-            if (solvearrResponse.status != "ok") {
-                logger.error("Solvearr returned non-ok status: {} for URL: {}", solvearrResponse.status, url)
-                throw ScraperException("Solvearr returned status: ${solvearrResponse.status}")
+            if (!httpStatus.isSuccess() || solvearrResponse.status != "ok") {
+                logger.error(
+                    "Solvearr failed for URL {}: httpStatus={}, status={}, message={}",
+                    url,
+                    httpStatus,
+                    solvearrResponse.status,
+                    solvearrResponse.message
+                )
+                val reason = solvearrResponse.message.ifBlank {
+                    "HTTP $httpStatus"
+                }
+                throw ScraperException("Browser verification failed: $reason")
             }
 
             val solution = solvearrResponse.solution
@@ -73,7 +77,11 @@ class SolvearrClient(
             val cookies = solution.cookies
                 .associate { it.name to it.value }
 
-            PageWithCookies(html = html, cookies = cookies)
+            PageWithCookies(
+                html = html,
+                cookies = cookies,
+                userAgent = solution.userAgent
+            )
 
         } catch (e: ScraperException) {
             throw e
@@ -81,6 +89,53 @@ class SolvearrClient(
             logger.error("Solvearr unavailable for URL: {}", url, e)
             throw ScraperException("Solvearr unavailable: ${e.message}", e)
         }
+    }
+
+    suspend fun createSession(sessionId: String) {
+        val (httpStatus, response) = execute(
+            SolvearrRequest(cmd = "sessions.create", session = sessionId)
+        )
+        if (!httpStatus.isSuccess() || response.status != "ok") {
+            val reason = response.message.ifBlank { "HTTP $httpStatus" }
+            throw ScraperException("Could not create browser session: $reason")
+        }
+    }
+
+    suspend fun destroySession(sessionId: String) {
+        try {
+            val (httpStatus, response) = execute(
+                SolvearrRequest(cmd = "sessions.destroy", session = sessionId)
+            )
+            if (!httpStatus.isSuccess() || response.status != "ok") {
+                logger.warn(
+                    "Could not destroy Solvearr session {}: httpStatus={}, status={}, message={}",
+                    sessionId,
+                    httpStatus,
+                    response.status,
+                    response.message
+                )
+            }
+        } catch (e: Exception) {
+            logger.warn("Could not destroy Solvearr session {}: {}", sessionId, e.message)
+        }
+    }
+
+    private suspend fun execute(requestBody: SolvearrRequest): Pair<HttpStatusCode, SolvearrResponse> {
+        val response = httpClient.post("${config.solvearrUrl}/v1") {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(requestBody))
+        }
+        val responseBody = response.bodyAsText()
+        val solvearrResponse = try {
+            json.decodeFromString<SolvearrResponse>(responseBody)
+        } catch (e: Exception) {
+            throw ScraperException(
+                "Invalid response from browser verification service (HTTP ${response.status})",
+                e
+            )
+        }
+
+        return response.status to solvearrResponse
     }
 
     fun close() {
@@ -94,14 +149,16 @@ class SolvearrClient(
 
 data class PageWithCookies(
     val html: String,
-    val cookies: Map<String, String>
+    val cookies: Map<String, String>,
+    val userAgent: String = ""
 )
 
 @Serializable
 private data class SolvearrRequest(
     val cmd: String,
-    val url: String,
-    val maxTimeout: Int
+    val url: String? = null,
+    val maxTimeout: Int? = null,
+    val session: String? = null
 )
 
 @Serializable
@@ -116,7 +173,8 @@ private data class SolvearrSolution(
     val url: String = "",
     val status: Int = 0,
     val response: String = "",
-    val cookies: List<SolvearrCookie> = emptyList()
+    val cookies: List<SolvearrCookie> = emptyList(),
+    val userAgent: String = ""
 )
 
 @Serializable

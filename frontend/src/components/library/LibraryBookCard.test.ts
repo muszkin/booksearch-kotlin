@@ -96,6 +96,55 @@ describe('LibraryBookCard', () => {
     expect(wrapper.find('[data-testid="send-pocketbook-btn"]').exists()).toBe(true)
   })
 
+  it('disables file actions and explains that download is still in progress', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ filePath: null }),
+        downloadStatus: {
+          jobId: 7,
+          status: 'fetching_slow_download',
+          progress: 40,
+        },
+        kindleEnabled: true,
+        pocketbookEnabled: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="send-kindle-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="convert-mobi-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="download-file-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
+      'still downloading',
+    )
+  })
+
+  it('keeps a failed download visible and offers retry without enabling delivery', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ filePath: null }),
+        downloadStatus: {
+          jobId: 8,
+          status: 'failed',
+          progress: 40,
+          error: 'Download challenge timed out',
+        },
+        kindleEnabled: false,
+        pocketbookEnabled: true,
+      },
+    })
+
+    expect(wrapper.text()).toContain('Download challenge timed out')
+    expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
+      'Download failed',
+    )
+  })
+
   it('shows delivery indicators when deliveries exist', () => {
     const wrapper = mount(LibraryBookCard, {
       props: {
