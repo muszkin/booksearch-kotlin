@@ -22,6 +22,12 @@ class MirrorService(
             .filter { it.domain in config.domains }
             .mapNotNull { it.baseUrl }
 
+    fun getDownloadMirrors(): List<String> {
+        val healthyMirrors = getWorkingMirrors()
+        val configuredMirrors = config.domains.map { "https://$it" }
+        return healthyMirrors + configuredMirrors.filterNot(healthyMirrors::contains)
+    }
+
     suspend fun checkAllDomains() {
         for (domain in config.domains) {
             val baseUrl = "https://$domain"

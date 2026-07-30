@@ -102,6 +102,40 @@ class MirrorServiceTest {
     }
 
     @Test
+    fun getDownloadMirrorsKeepsUnhealthyConfiguredDomainsAsFallbacks() {
+        mirrorRepository.upsert("annas-archive.gd", "https://annas-archive.gd", false, 300)
+        mirrorRepository.upsert("annas-archive.pk", "https://annas-archive.pk", true, 100)
+        mirrorRepository.upsert("annas-archive.gl", "https://annas-archive.gl", false, 200)
+
+        val mirrors = mirrorService.getDownloadMirrors()
+
+        assertEquals(
+            listOf(
+                "https://annas-archive.pk",
+                "https://annas-archive.gd",
+                "https://annas-archive.gl"
+            ),
+            mirrors
+        )
+    }
+
+    @Test
+    fun getDownloadMirrorsReturnsConfiguredDomainsWhenHealthCheckRejectsAll() {
+        mirrorRepository.upsert("annas-archive.gd", "https://annas-archive.gd", false, Int.MAX_VALUE)
+        mirrorRepository.upsert("annas-archive.pk", "https://annas-archive.pk", false, Int.MAX_VALUE)
+        mirrorRepository.upsert("annas-archive.gl", "https://annas-archive.gl", false, Int.MAX_VALUE)
+
+        assertEquals(
+            listOf(
+                "https://annas-archive.gd",
+                "https://annas-archive.pk",
+                "https://annas-archive.gl"
+            ),
+            mirrorService.getDownloadMirrors()
+        )
+    }
+
+    @Test
     fun getActiveMirrorReturnsNullWhenNoMirrorsAvailable() {
         val baseUrl = mirrorService.getActiveMirror()
 

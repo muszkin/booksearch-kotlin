@@ -120,9 +120,9 @@ class DownloadService(
     private suspend fun processJob(jobId: Int, userId: Int, bookMd5: String, format: String) {
         var targetFile: File? = null
         try {
-            val mirrors = mirrorService.getWorkingMirrors()
+            val mirrors = mirrorService.getDownloadMirrors()
             if (mirrors.isEmpty()) {
-                throw IllegalStateException("No working mirror available")
+                throw IllegalStateException("No download mirror is configured")
             }
 
             val source = resolveDownloadSource(

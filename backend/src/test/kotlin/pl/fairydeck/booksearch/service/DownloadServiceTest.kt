@@ -183,7 +183,7 @@ class DownloadServiceTest {
         val md5 = "1234567890abcdef1234567890abcdef"
         insertTestBook(md5)
         val releaseWorker = CountDownLatch(1)
-        every { mirrorService.getWorkingMirrors() } answers {
+        every { mirrorService.getDownloadMirrors() } answers {
             releaseWorker.await()
             emptyList()
         }
@@ -215,7 +215,7 @@ class DownloadServiceTest {
             .getResource("fixtures/annas-archive-slow-download-page.html")!!
             .readText()
 
-        every { mirrorService.getWorkingMirrors() } returns listOf(
+        every { mirrorService.getDownloadMirrors() } returns listOf(
             "https://annas-archive.gl",
             "https://annas-archive.gd"
         )
@@ -324,7 +324,7 @@ class DownloadServiceTest {
             torrentFallbackClient = torrentFallbackClient
         )
 
-        every { mirrorService.getWorkingMirrors() } returns listOf(
+        every { mirrorService.getDownloadMirrors() } returns listOf(
             "https://annas-archive.gl",
             "https://annas-archive.gd"
         )
@@ -386,13 +386,13 @@ class DownloadServiceTest {
         insertTestBook(md5)
         userLibraryRepository.add(user.id!!, md5, "epub")
         val jobId = downloadJobRepository.create(user.id!!, md5, "epub")
-        every { mirrorService.getWorkingMirrors() } returns emptyList()
+        every { mirrorService.getDownloadMirrors() } returns emptyList()
 
         downloadService.resumePendingJobs()
         val status = awaitTerminalStatus(jobId, user.id!!)
 
         assertEquals("failed", status.status)
-        assertTrue(status.error!!.contains("No working mirror"))
+        assertTrue(status.error!!.contains("No download mirror is configured"))
     }
 
     @Test

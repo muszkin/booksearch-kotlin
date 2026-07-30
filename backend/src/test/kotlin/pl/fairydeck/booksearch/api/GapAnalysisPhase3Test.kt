@@ -92,7 +92,7 @@ class GapAnalysisPhase3Test {
         insertTestBook("ff00ff00ff00ff00ff00ff00ff00ff00")
         userLibraryRepository.add(user.id!!, "ff00ff00ff00ff00ff00ff00ff00ff00", "epub")
 
-        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        every { mirrorService.getDownloadMirrors() } returns listOf("https://annas-archive.gl")
         coEvery { solvearrClient.createSession(any()) } returns Unit
         coEvery { solvearrClient.destroySession(any()) } returns Unit
         coEvery {
@@ -159,7 +159,7 @@ class GapAnalysisPhase3Test {
             </body></html>
         """.trimIndent()
 
-        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        every { mirrorService.getDownloadMirrors() } returns listOf("https://annas-archive.gl")
         coEvery { solvearrClient.createSession(any()) } returns Unit
         coEvery { solvearrClient.destroySession(any()) } returns Unit
         coEvery {
@@ -234,7 +234,7 @@ class GapAnalysisPhase3Test {
             </body></html>
         """.trimIndent()
 
-        every { mirrorService.getWorkingMirrors() } returns listOf("https://annas-archive.gl")
+        every { mirrorService.getDownloadMirrors() } returns listOf("https://annas-archive.gl")
         coEvery { solvearrClient.createSession(any()) } returns Unit
         coEvery { solvearrClient.destroySession(any()) } returns Unit
         coEvery {
@@ -408,7 +408,7 @@ class GapAnalysisPhase3Test {
         insertTestBook("dd00dd00dd00dd00dd00dd00dd00dd00")
         userLibraryRepository.add(user.id!!, "dd00dd00dd00dd00dd00dd00dd00dd00", "epub")
 
-        every { mirrorService.getWorkingMirrors() } returns emptyList()
+        every { mirrorService.getDownloadMirrors() } returns emptyList()
 
         val jobId = runBlocking {
             downloadService.startDownload(user.id!!, "dd00dd00dd00dd00dd00dd00dd00dd00")
