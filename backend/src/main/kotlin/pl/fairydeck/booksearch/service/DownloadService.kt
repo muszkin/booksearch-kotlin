@@ -4,21 +4,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.api.NotFoundException
 import pl.fairydeck.booksearch.infrastructure.HtmlParser
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveFastDownloadClient
 import pl.fairydeck.booksearch.infrastructure.PageWithCookies
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
+import pl.fairydeck.booksearch.infrastructure.ScraperException
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
+import pl.fairydeck.booksearch.infrastructure.TorrentDownloadLink
+import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
+import pl.fairydeck.booksearch.infrastructure.TorrentProgress
 import pl.fairydeck.booksearch.repository.BookRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import java.io.File
 import java.net.URI
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class DownloadService(
@@ -29,12 +35,15 @@ class DownloadService(
     private val impersonatorHttpClient: ImpersonatorHttpClient,
     private val mirrorService: MirrorService,
     private val scraperConfig: ScraperConfig,
-    private val metadataService: MetadataService? = null
+    private val metadataService: MetadataService? = null,
+    private val fastDownloadClient: AnnaArchiveFastDownloadClient? = null,
+    private val torrentFallbackClient: TorrentFallbackClient? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(DownloadService::class.java)
     private val downloadScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val downloadSemaphore = Semaphore(scraperConfig.maxConcurrentDownloads)
+    private val downloadResolutionMutex = Mutex()
     private val scheduledJobs = ConcurrentHashMap.newKeySet<Int>()
 
     suspend fun startDownload(userId: Int, bookMd5: String): Int {
@@ -110,49 +119,43 @@ class DownloadService(
 
     private suspend fun processJob(jobId: Int, userId: Int, bookMd5: String, format: String) {
         var targetFile: File? = null
-        var sessionId: String? = null
         try {
             val mirrors = mirrorService.getWorkingMirrors()
             if (mirrors.isEmpty()) {
                 throw IllegalStateException("No working mirror available")
             }
 
-            sessionId = "booksearch-$jobId-${UUID.randomUUID()}"
-            solvearrClient.createSession(sessionId)
-
-            downloadJobRepository.updateProgress(jobId, "fetching_detail", 20)
-            logger.info("Job {}: fetching detail page for {}", jobId, bookMd5)
-
-            val (detailMirror, detailPage, downloadLinks) = fetchDetailPage(
-                bookMd5,
-                mirrors,
-                sessionId
-            )
-
-            downloadJobRepository.updateProgress(jobId, "fetching_slow_download", 40)
-            logger.info(
-                "Job {}: fetching slow download page, {} links across {} mirrors",
-                jobId,
-                downloadLinks.size,
-                mirrors.size
-            )
-            val (fileUrl, allCookies, userAgent) = findFileUrl(
-                jobId = jobId,
+            val source = resolveDownloadSource(
                 bookMd5 = bookMd5,
-                detailMirror = detailMirror,
-                detailPage = detailPage,
-                downloadLinks = downloadLinks,
                 mirrors = mirrors,
-                sessionId = sessionId
+                jobId = jobId
             )
-
-            downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
-            logger.info("Job {}: downloading file from {}", jobId, fileUrl)
-            val fileBytes = impersonatorHttpClient.fetchBinary(
-                fileUrl,
-                allCookies,
-                userAgent
-            )
+            val fileBytes = when (source) {
+                is DownloadSource.Direct -> {
+                    downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
+                    logger.info("Job {}: downloading resolved file", jobId)
+                    impersonatorHttpClient.fetchBinary(
+                        source.url,
+                        source.cookies,
+                        source.userAgent
+                    )
+                }
+                is DownloadSource.Torrent -> {
+                    val fallbackClient = torrentFallbackClient
+                        ?: throw IllegalStateException("Torrent fallback is not available")
+                    fallbackClient.download(
+                        jobId = jobId,
+                        bookMd5 = bookMd5,
+                        format = format,
+                        mirror = source.mirror,
+                        link = source.link
+                    ) { progress ->
+                        updateTorrentProgress(jobId, progress)
+                    }.also {
+                        downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
+                    }
+                }
+            }
 
             val userDir = File(scraperConfig.dataPath, userId.toString())
             userDir.mkdirs()
@@ -174,69 +177,71 @@ class DownloadService(
             logger.error("Job {}: failed - {}", jobId, e.message, e)
             cleanupPartialFile(targetFile)
             downloadJobRepository.markFailed(jobId, e.message ?: "Unknown error")
-        } finally {
-            if (sessionId != null) {
-                solvearrClient.destroySession(sessionId)
-            }
         }
     }
 
-    private suspend fun fetchDetailPage(
-        bookMd5: String,
-        mirrors: List<String>,
-        sessionId: String
-    ): DetailPageResult {
-        var lastError: Exception? = null
-
-        for (mirror in mirrors) {
-            val detailUrl = "$mirror/md5/$bookMd5"
-            try {
-                val page = solvearrClient.fetchPageWithCookies(
-                    detailUrl,
-                    sessionId = sessionId
-                )
-                val links = HtmlParser.parseDetailPageDownloadLinks(page.html)
-                if (links.isNotEmpty()) {
-                    return DetailPageResult(mirror, page, links)
-                }
-                logger.warn("No download links found for {} on mirror {}", bookMd5, mirror)
-            } catch (e: Exception) {
-                lastError = e
-                logger.warn("Detail page failed for {} on mirror {}: {}", bookMd5, mirror, e.message)
-            }
-        }
-
-        throw IllegalStateException(
-            buildString {
-                append("Could not load a download page for $bookMd5 from ${mirrors.size} mirrors")
-                lastError?.message
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { append(". Last error: $it") }
-            },
-            lastError
-        )
-    }
-
-    private suspend fun findFileUrl(
+    private suspend fun resolveDownloadSource(
         jobId: Int,
         bookMd5: String,
-        detailMirror: String,
-        detailPage: PageWithCookies,
-        downloadLinks: List<pl.fairydeck.booksearch.infrastructure.DownloadLink>,
+        mirrors: List<String>
+    ): DownloadSource {
+        if (fastDownloadClient != null && scraperConfig.annaArchiveApiKey != null) {
+            downloadJobRepository.updateProgress(jobId, "fetching_fast_download", 10)
+            val fastUrl = fastDownloadClient.resolveDownloadUrl(bookMd5, mirrors)
+            if (fastUrl != null) {
+                return DownloadSource.Direct(
+                    url = fastUrl,
+                    cookies = emptyMap(),
+                    userAgent = scraperConfig.userAgent
+                )
+            }
+        }
+
+        return downloadResolutionMutex.withLock {
+            solvearrClient.createSession(DOWNLOAD_SESSION_ID)
+            resolveFreeDownloadSource(jobId, bookMd5, mirrors, DOWNLOAD_SESSION_ID)
+        }
+    }
+
+    private suspend fun resolveFreeDownloadSource(
+        jobId: Int,
+        bookMd5: String,
         mirrors: List<String>,
         sessionId: String
-    ): FileUrlResult {
-        val orderedMirrors = listOf(detailMirror) + mirrors.filterNot { it == detailMirror }
-        val unavailableMirrors = mutableSetOf<String>()
+    ): DownloadSource {
+        var torrentSource: DownloadSource.Torrent? = null
         var lastFailure: String? = null
 
-        for ((linkIndex, link) in downloadLinks.withIndex()) {
-            for (mirror in orderedMirrors) {
-                if (mirror in unavailableMirrors) continue
+        for (mirror in mirrors) {
+            downloadJobRepository.updateProgress(jobId, "fetching_detail", 20)
+            logger.info("Job {}: warming mirror {} for {}", jobId, mirror, bookMd5)
+            val detailPage = try {
+                solvearrClient.fetchPageWithCookies(
+                    "$mirror/md5/$bookMd5",
+                    sessionId = sessionId
+                )
+            } catch (e: Exception) {
+                lastFailure = e.message
+                logger.warn("Job {}: detail page failed on {}: {}", jobId, mirror, e.message)
+                continue
+            }
+            val downloadLinks = HtmlParser.parseDetailPageDownloadLinks(detailPage.html)
+            if (torrentSource == null && torrentFallbackClient != null) {
+                torrentSource = HtmlParser.parseTorrentDownloadLinks(detailPage.html)
+                    .firstOrNull { !it.isPacked }
+                    ?.let { DownloadSource.Torrent(mirror, it) }
+            }
 
+            if (downloadLinks.isEmpty()) {
+                logger.warn("Job {}: no slow-download links found on {}", jobId, mirror)
+                continue
+            }
+
+            downloadJobRepository.updateProgress(jobId, "fetching_slow_download", 40)
+            for ((linkIndex, link) in downloadLinks.withIndex()) {
                 val slowDownloadUrl = resolveSlowDownloadUrl(mirror, link.url)
                 logger.info(
-                    "Job {}: trying link {}/{} via {}",
+                    "Job {}: trying slow-download link {}/{} via warmed mirror {}",
                     jobId,
                     linkIndex + 1,
                     downloadLinks.size,
@@ -267,7 +272,7 @@ class DownloadService(
                             mirror,
                             foundUrl.take(80)
                         )
-                        return FileUrlResult(
+                        return DownloadSource.Direct(
                             url = foundUrl,
                             cookies = detailPage.cookies + resolvedPage.cookies,
                             userAgent = resolvedPage.userAgent.ifBlank {
@@ -283,26 +288,61 @@ class DownloadService(
                     )
                 } catch (e: Exception) {
                     lastFailure = e.message
-                    unavailableMirrors += mirror
                     logger.warn(
-                        "Job {}: mirror {} failed for slow downloads and will be skipped: {}",
+                        "Job {}: slow downloads failed on {}: {}",
                         jobId,
                         mirror,
                         e.message
                     )
+                    if (torrentSource != null && isChallengeFailure(e)) {
+                        logger.info(
+                            "Job {}: switching directly to torrent fallback after DDoS challenge",
+                            jobId
+                        )
+                        return torrentSource
+                    }
+                    break
                 }
             }
         }
 
+        if (torrentSource != null) return torrentSource
+
         throw IllegalStateException(
             buildString {
                 append("A free download link is currently unavailable after trying ")
-                append("${downloadLinks.size} links across ${orderedMirrors.size} mirrors.")
+                append("${mirrors.size} mirrors.")
                 if (!lastFailure.isNullOrBlank()) {
                     append(" Last error: $lastFailure")
                 }
             }
         )
+    }
+
+    private fun updateTorrentProgress(jobId: Int, progress: TorrentProgress) {
+        when (progress) {
+            TorrentProgress.FetchingMetadata ->
+                downloadJobRepository.updateProgress(jobId, "fetching_torrent_metadata", 45)
+            TorrentProgress.WaitingForPeers ->
+                downloadJobRepository.updateProgress(jobId, "waiting_for_torrent_peers", 50)
+            is TorrentProgress.Downloading -> {
+                val mappedProgress = 50 + (progress.percent.coerceIn(0, 100) / 10)
+                downloadJobRepository.updateProgress(
+                    jobId,
+                    "downloading_torrent_piece",
+                    mappedProgress
+                )
+            }
+        }
+    }
+
+    private fun isChallengeFailure(error: Exception): Boolean {
+        val message = generateSequence(error as Throwable?) { it.cause }
+            .mapNotNull { it.message }
+            .joinToString(" ")
+        return message.contains("challenge", ignoreCase = true) ||
+            message.contains("browser verification", ignoreCase = true) ||
+            error is ScraperException
     }
 
     private suspend fun waitForDownloadSlotIfNeeded(
@@ -389,19 +429,21 @@ class DownloadService(
         }
     }
 
-    private data class DetailPageResult(
-        val mirror: String,
-        val page: PageWithCookies,
-        val links: List<pl.fairydeck.booksearch.infrastructure.DownloadLink>
-    )
+    private sealed interface DownloadSource {
+        data class Direct(
+            val url: String,
+            val cookies: Map<String, String>,
+            val userAgent: String
+        ) : DownloadSource
 
-    private data class FileUrlResult(
-        val url: String,
-        val cookies: Map<String, String>,
-        val userAgent: String
-    )
+        data class Torrent(
+            val mirror: String,
+            val link: TorrentDownloadLink
+        ) : DownloadSource
+    }
 
     companion object {
+        private const val DOWNLOAD_SESSION_ID = "booksearch-annas-downloads"
         private const val SLOW_DOWNLOAD_TIMEOUT_MS = 30_000
         private const val MAX_DOWNLOAD_SLOT_ATTEMPTS = 2
         private const val MAX_DOWNLOAD_SLOT_WAIT_SECONDS = 10 * 60

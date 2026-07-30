@@ -13,11 +13,14 @@ object HtmlParser {
     private const val FORMAT_INFO_SELECTOR = "div.font-semibold.text-sm"
     private const val DOWNLOADS_PANEL_SELECTOR = "div#md5-panel-downloads"
     private const val SLOW_DOWNLOAD_LINK_SELECTOR = "a[href*=slow_download]"
+    private const val TORRENT_LINK_SELECTOR = "a[href*=/dyn/small_file/torrents/][href$=.torrent]"
     private const val NO_WAITLIST_MARKER = "no waitlist"
     private const val DOWNLOAD_LINK_SELECTOR = "p.text-xl.font-bold a[href^=http]"
     private const val MD5_PREFIX_LENGTH = 12
     private val MD5_PATTERN = Regex("/md5/([a-f0-9]{32})")
     private val WAIT_SECONDS_PATTERN = Regex("""waitSeconds\s*=\s*(\d+)""")
+    private val TORRENT_FILE_PATTERN = Regex("""file\s+[“"]([^”"]+)[”"]""")
+    private val TORRENT_EXTRACT_FILE_PATTERN = Regex("""\(extract\).*?file\s+[“"]([^”"]+)[”"]""")
 
     fun parseSearchResults(html: String): List<ParsedBookEntry> {
         if (html.isBlank()) return emptyList()
@@ -146,6 +149,33 @@ object HtmlParser {
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()
+    }
+
+    fun parseTorrentDownloadLinks(html: String): List<TorrentDownloadLink> {
+        if (html.isBlank()) return emptyList()
+
+        val document = Jsoup.parse(html)
+        return document.select(TORRENT_LINK_SELECTOR)
+            .mapNotNull { anchor ->
+                val containerText = anchor.closest("li")?.text().orEmpty()
+                val files = TORRENT_FILE_PATTERN.findAll(containerText)
+                    .map { it.groupValues[1].trim() }
+                    .filter { it.isNotBlank() }
+                    .toList()
+                val fileLevel1 = files.firstOrNull() ?: return@mapNotNull null
+                val fileLevel2 = TORRENT_EXTRACT_FILE_PATTERN.find(containerText)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+
+                TorrentDownloadLink(
+                    torrentUrl = anchor.attr("href"),
+                    fileLevel1 = fileLevel1,
+                    fileLevel2 = fileLevel2
+                )
+            }
+            .distinctBy { Triple(it.torrentUrl, it.fileLevel1, it.fileLevel2) }
     }
 
     fun isAnnaArchivePage(html: String): Boolean {

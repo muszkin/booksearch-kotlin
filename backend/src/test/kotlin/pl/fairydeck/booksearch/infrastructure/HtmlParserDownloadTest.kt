@@ -72,4 +72,49 @@ class HtmlParserDownloadTest {
 
         assertEquals(42, HtmlParser.parseSlowDownloadWaitSeconds(html))
     }
+
+    @Test
+    fun shouldExtractPublicTorrentFallbackFromDetailPage() {
+        val html = """
+            <html><body>
+              <ul>
+                <li class="list-disc">
+                  Bulk torrent downloads
+                  <a href="/dyn/small_file/torrents/managed/book-files.torrent">
+                    book-files.torrent
+                  </a>
+                  → file “aacid__book_file”
+                </li>
+              </ul>
+            </body></html>
+        """.trimIndent()
+
+        val links = HtmlParser.parseTorrentDownloadLinks(html)
+
+        assertEquals(
+            listOf(
+                TorrentDownloadLink(
+                    torrentUrl = "/dyn/small_file/torrents/managed/book-files.torrent",
+                    fileLevel1 = "aacid__book_file"
+                )
+            ),
+            links
+        )
+    }
+
+    @Test
+    fun shouldMarkPackedTorrentFallbackAsUnsupported() {
+        val html = """
+            <li>
+              <a href="/dyn/small_file/torrents/managed/archive.torrent">archive.torrent</a>
+              → file “archive.tar” (extract) → file “book.epub”
+            </li>
+        """.trimIndent()
+
+        val link = HtmlParser.parseTorrentDownloadLinks(html).single()
+
+        assertEquals("archive.tar", link.fileLevel1)
+        assertEquals("book.epub", link.fileLevel2)
+        assertTrue(link.isPacked)
+    }
 }

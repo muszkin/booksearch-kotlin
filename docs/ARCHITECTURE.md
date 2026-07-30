@@ -73,16 +73,21 @@ sequenceDiagram
 
 ## Data Flow — Download
 
-Downloading a book is a multi-step process that involves resolving the detail page, finding the slow-download link, fetching the binary, and extracting metadata.
+Downloading a book uses a bounded source pipeline. The optional membership API
+is tried first. Free downloads use one serialized browser session so concurrent
+jobs do not multiply DDoS-Guard challenges. A public torrent is the final
+fallback when all slow-download routes are blocked.
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant DR as DownloadRoutes
     participant DS as DownloadService
+    participant API as Fast-download API
     participant SOL as SolvearrClient
     participant FS as FlareSolverr
     participant AA as Anna's Archive
+    participant AR as aria2
     participant IMP as ImpersonatorHttpClient
     participant FS2 as File Storage
     participant MS as MetadataService
@@ -94,22 +99,33 @@ sequenceDiagram
     DS-->>DR: 202 {jobId}
     Note over DS: Async coroutine begins
 
-    DS->>SOL: Fetch detail page for MD5
-    SOL->>FS: POST /v1
-    FS->>AA: GET /md5/{md5}
-    AA-->>FS: Detail HTML
-    FS-->>SOL: HTML
-    SOL-->>DS: Parsed slow_download link
+    opt Membership key configured
+        DS->>API: Resolve fast download by MD5
+        API-->>DS: Direct URL or unavailable
+    end
 
-    DS->>SOL: Fetch slow_download page
-    SOL->>FS: POST /v1
-    FS->>AA: GET slow_download URL
-    AA-->>FS: Page with binary link
-    FS-->>SOL: HTML with direct URL
-    SOL-->>DS: Direct download URL
+    alt Fast URL available
+        DS->>IMP: GET binary file
+        IMP-->>DS: Binary bytes
+    else Free source required
+        DS->>SOL: Fetch detail page in persistent session
+        SOL->>FS: POST /v1
+        FS->>AA: GET /md5/{md5}
+        AA-->>FS: Detail HTML
+        FS-->>SOL: HTML and cookies
+        SOL-->>DS: Slow links and public torrent metadata
+        DS->>SOL: Fetch slow-download page
+        alt Slow route available
+            SOL-->>DS: Direct URL and cookies
+            DS->>IMP: GET binary file
+            IMP-->>DS: Binary bytes
+        else DDoS-Guard challenge
+            DS->>IMP: GET public .torrent metadata
+            DS->>AR: Select exact file and wait for peers
+            AR-->>DS: Size and MD5-verified bytes
+        end
+    end
 
-    DS->>IMP: GET binary file
-    IMP-->>DS: Binary stream
     DS->>FS2: Write to data/{userId}/{md5}.{format}
     DS->>MS: extractMetadata(file)
     MS-->>DS: Title, Author, Cover

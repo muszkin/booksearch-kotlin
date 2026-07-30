@@ -9,9 +9,13 @@ const props = defineProps<{
 
 const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
+  fetching_fast_download: 'Checking fast download',
   fetching_detail: 'Opening book page',
   fetching_slow_download: 'Waiting for download link',
   waiting_for_download_slot: 'Waiting for a free download slot',
+  fetching_torrent_metadata: 'Preparing torrent fallback',
+  waiting_for_torrent_peers: 'Waiting for torrent peers',
+  downloading_torrent_piece: 'Downloading verified torrent piece',
   downloading: 'Downloading file',
   downloading_file: 'Downloading file',
   extracting_metadata: 'Extracting metadata',

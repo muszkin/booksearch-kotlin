@@ -39,6 +39,8 @@ import pl.fairydeck.booksearch.api.settingsRoutes
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveFastDownloadClient
+import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
@@ -133,6 +135,8 @@ fun Application.module() {
     val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService)
     val downloadJobRepository = DownloadJobRepository(dsl)
     val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
+    val fastDownloadClient = AnnaArchiveFastDownloadClient(scraperConfig)
+    val torrentFallbackClient = TorrentFallbackClient(scraperConfig, impersonatorHttpClient)
     val downloadService = DownloadService(
         downloadJobRepository = downloadJobRepository,
         bookRepository = bookRepository,
@@ -141,7 +145,9 @@ fun Application.module() {
         impersonatorHttpClient = impersonatorHttpClient,
         mirrorService = mirrorService,
         scraperConfig = scraperConfig,
-        metadataService = metadataService
+        metadataService = metadataService,
+        fastDownloadClient = fastDownloadClient,
+        torrentFallbackClient = torrentFallbackClient
     )
     val calibreWrapper = CalibreWrapper()
     val conversionService = ConversionService(

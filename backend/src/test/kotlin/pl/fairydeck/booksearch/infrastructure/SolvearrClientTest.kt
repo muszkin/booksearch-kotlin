@@ -3,6 +3,7 @@ package pl.fairydeck.booksearch.infrastructure
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.http.*
+import io.ktor.http.content.TextContent
 import io.ktor.utils.io.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -59,6 +60,133 @@ class SolvearrClientTest {
         assertEquals("abc123xyz", result.cookies["cf_clearance"])
         assertEquals("sess456", result.cookies["session_id"])
         assertEquals("FlareSolverrAgent/1.0", result.userAgent)
+
+        client.close()
+    }
+
+    @Test
+    fun shouldRejectChallengePageReturnedAsSuccessfulSolution() {
+        val solvearrJsonResponse = """
+        {
+            "status": "ok",
+            "message": "Challenge not detected!",
+            "solution": {
+                "url": "https://annas-archive.gl/slow_download/test",
+                "status": 200,
+                "response": "<html><head><title>DDoS-Guard</title></head><body>Checking your browser</body></html>",
+                "userAgent": "FlareSolverrAgent/1.0",
+                "cookies": []
+            }
+        }
+        """.trimIndent()
+        val mockEngine = MockEngine {
+            respond(
+                content = ByteReadChannel(solvearrJsonResponse),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = SolvearrClient(
+            config = ScraperConfig(
+                solvearrUrl = "http://localhost:8191",
+                userAgent = "test",
+                requestDelayMs = 0,
+                maxRetries = 0,
+                backoffMultiplier = 1.0,
+            ),
+            httpClientOverride = HttpClient(mockEngine)
+        )
+
+        val error = assertThrows(ScraperException::class.java) {
+            runBlocking {
+                client.fetchPageWithCookies("https://annas-archive.gl/slow_download/test")
+            }
+        }
+
+        assertTrue(error.message!!.contains("challenge page"))
+        client.close()
+    }
+
+    @Test
+    fun shouldRejectHttpErrorReportedInsideSolution() {
+        val solvearrJsonResponse = """
+        {
+            "status": "ok",
+            "message": "",
+            "solution": {
+                "url": "https://annas-archive.gl/slow_download/test",
+                "status": 403,
+                "response": "<html><body>Forbidden</body></html>",
+                "userAgent": "FlareSolverrAgent/1.0",
+                "cookies": []
+            }
+        }
+        """.trimIndent()
+        val mockEngine = MockEngine {
+            respond(
+                content = ByteReadChannel(solvearrJsonResponse),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = SolvearrClient(
+            config = ScraperConfig(
+                solvearrUrl = "http://localhost:8191",
+                userAgent = "test",
+                requestDelayMs = 0,
+                maxRetries = 0,
+                backoffMultiplier = 1.0,
+            ),
+            httpClientOverride = HttpClient(mockEngine)
+        )
+
+        assertThrows(ScraperException::class.java) {
+            runBlocking {
+                client.fetchPageWithCookies("https://annas-archive.gl/slow_download/test")
+            }
+        }
+        client.close()
+    }
+
+    @Test
+    fun shouldRequestDailyRotationForPersistentSession() = runBlocking {
+        val mockEngine = MockEngine { request ->
+            val requestBody = (request.body as TextContent).text
+            assertTrue(requestBody.contains("\"session\":\"booksearch-annas-downloads\""))
+            assertTrue(requestBody.contains("\"session_ttl_minutes\":1440"))
+            respond(
+                content = ByteReadChannel(
+                    """
+                    {
+                        "status": "ok",
+                        "message": "",
+                        "solution": {
+                            "status": 200,
+                            "response": "<html><body>Detail page</body></html>",
+                            "cookies": []
+                        }
+                    }
+                    """.trimIndent()
+                ),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = SolvearrClient(
+            config = ScraperConfig(
+                solvearrUrl = "http://localhost:8191",
+                userAgent = "test",
+                requestDelayMs = 0,
+                maxRetries = 0,
+                backoffMultiplier = 1.0,
+            ),
+            httpClientOverride = HttpClient(mockEngine)
+        )
+
+        client.fetchPageWithCookies(
+            "https://annas-archive.gl/md5/test",
+            sessionId = "booksearch-annas-downloads"
+        )
 
         client.close()
     }

@@ -49,4 +49,13 @@ describe('DownloadProgressBar', () => {
     expect(wrapper.text()).toContain('Waiting for download link')
     expect(wrapper.text()).toContain('40%')
   })
+
+  it('explains torrent fallback states', () => {
+    const wrapper = mount(DownloadProgressBar, {
+      props: { status: 'waiting_for_torrent_peers', progress: 50 },
+    })
+
+    expect(wrapper.text()).toContain('Waiting for torrent peers')
+    expect(wrapper.text()).toContain('50%')
+  })
 })

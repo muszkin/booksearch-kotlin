@@ -8,6 +8,7 @@ A self-hosted web application for searching, downloading, and managing e-books f
 - Multi-user support with JWT authentication and role-based access (super-admin, regular user)
 - Personal library per user with download, deletion, and ownership tracking
 - Asynchronous book downloads with job status polling
+- Resilient download pipeline: membership API, browser-assisted slow download, and checksum-verified public torrent fallback
 - EPUB to MOBI (and reverse) conversion via Calibre
 - Send books to Kindle and PocketBook devices over SMTP
 - Delivery history with per-book and per-device indicators
@@ -25,6 +26,7 @@ A self-hosted web application for searching, downloading, and managing e-books f
 | Frontend | Vue.js 3.5, Pinia 3, Tailwind CSS 4, TypeScript 6 |
 | Database | SQLite |
 | Cloudflare bypass | FlareSolverr |
+| Torrent fallback | aria2 |
 | Format conversion | Calibre (ebook-convert) |
 | Dev mail | Mailpit |
 | Runtime | Eclipse Temurin JRE 21 (Debian) |
@@ -68,6 +70,10 @@ Mailpit UI (dev): `http://localhost:8025`
 | `MIRROR_DOMAINS` | `annas-archive.gd,...` | Comma-separated list of Anna's Archive mirror domains |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Maximum parallel download jobs |
 | `DATA_PATH` | `./data/library` | Directory for downloaded book files |
+| `ANNA_ARCHIVE_API_KEY` | unset | Optional membership key for the fast-download API |
+| `FLARESOLVERR_SESSION_TTL_MINUTES` | `1440` | Rotate the persistent browser session after this many minutes |
+| `TORRENT_FALLBACK_ENABLED` | `true` | Use public torrents when DDoS-Guard blocks slow-download pages |
+| `TORRENT_STALL_TIMEOUT_SECONDS` | `600` | Stop a torrent fallback after this many seconds without transfer |
 | `SMTP_HOST` | `mailpit` | SMTP server host (used for system emails) |
 | `SMTP_PORT` | `1025` | SMTP server port |
 

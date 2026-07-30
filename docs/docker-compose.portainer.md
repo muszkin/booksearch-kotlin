@@ -68,10 +68,24 @@ container unhealthy, and autoheal restarts it.
 
 This is health-based rather than a fixed 24-hour restart. A scheduled restart
 can interrupt an active book download while doing nothing for source-specific
-DDoS challenges. The backend handles those challenges separately by rotating
-through the currently working Anna's Archive mirrors. The production Compose
-file pins `MIRROR_DOMAINS` to the current `.gd`, `.pk`, and `.gl` domains so an
-older `.env` file cannot re-enable retired mirrors.
+DDoS challenges. The backend handles those separately with a bounded source
+pipeline:
+
+1. If `ANNA_ARCHIVE_API_KEY` is configured, try the stable fast-download API.
+2. Open each detail page in one serialized, persistent FlareSolverr session and
+   try the no-waitlist slow-download links. FlareSolverr rotates that session
+   after `FLARESOLVERR_SESSION_TTL_MINUTES` (24 hours by default).
+3. If DDoS-Guard blocks the slow route, download the exact file from the public
+   torrent metadata exposed by the detail page.
+
+The torrent fallback uses `aria2`, selects only the matching file, verifies its
+size and MD5, never seeds, and removes its staging directory after completion.
+Because BitTorrent verifies whole pieces, temporary disk and network usage can
+be larger than the final ebook. A transfer with no peers fails after
+`TORRENT_STALL_TIMEOUT_SECONDS` instead of leaving the progress bar stuck.
+
+The production Compose file pins `MIRROR_DOMAINS` to the current `.gd`, `.pk`,
+and `.gl` domains so an older `.env` file cannot re-enable retired mirrors.
 
 `autoheal` needs the Docker socket mounted in order to restart the labelled
 container. Do not change `AUTOHEAL_CONTAINER_LABEL` to `all`; the

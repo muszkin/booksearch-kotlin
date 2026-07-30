@@ -22,6 +22,10 @@ scraper:
   solvearrUrl: "$SOLVEARR_URL:http://flaresolverr:8191"
   maxConcurrentDownloads: "$MAX_CONCURRENT_DOWNLOADS:2"
   dataPath: "$DATA_PATH:./data/library"
+  annaArchiveApiKey: "$ANNA_ARCHIVE_API_KEY:"
+  solvearrSessionTtlMinutes: "$FLARESOLVERR_SESSION_TTL_MINUTES:1440"
+  torrentFallbackEnabled: "$TORRENT_FALLBACK_ENABLED:true"
+  torrentStallTimeoutSeconds: "$TORRENT_STALL_TIMEOUT_SECONDS:600"
   userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 mirror:

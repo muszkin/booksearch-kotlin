@@ -110,8 +110,19 @@ class DownloadServiceTest {
         assertNotNull(status)
         assertEquals(jobId, status!!.id)
         // Status may be "queued" or already progressing due to async coroutine
-        assertTrue(status.status in listOf("queued", "fetching_detail", "fetching_slow_download", "failed"),
-            "Expected initial status but got: ${status.status}")
+        assertTrue(
+            status.status in listOf(
+                "queued",
+                "fetching_fast_download",
+                "fetching_detail",
+                "fetching_slow_download",
+                "fetching_torrent_metadata",
+                "waiting_for_torrent_peers",
+                "downloading_torrent_piece",
+                "failed"
+            ),
+            "Expected initial status but got: ${status.status}"
+        )
     }
 
     @Test
@@ -139,6 +150,31 @@ class DownloadServiceTest {
         assertEquals("queued", job.status)
         assertEquals(0, job.progress)
         assertNotNull(job.createdAt)
+    }
+
+    @Test
+    fun shouldTreatFallbackProgressStagesAsActiveJobs() {
+        val user = userRepository.create("fallback-states@test.com", "hash", "Fallback User", false, false)
+        val md5 = "99887766554433221100998877665544"
+        insertTestBook(md5)
+
+        val fallbackStatuses = listOf(
+            "fetching_fast_download",
+            "fetching_torrent_metadata",
+            "waiting_for_torrent_peers",
+            "downloading_torrent_piece"
+        )
+
+        fallbackStatuses.forEach { status ->
+            val jobId = downloadJobRepository.create(user.id!!, md5, "epub")
+            downloadJobRepository.updateProgress(jobId, status, 50)
+
+            assertEquals(
+                jobId,
+                downloadJobRepository.findActiveByUserAndBook(user.id!!, md5, "epub")?.id
+            )
+            assertEquals(1, downloadJobRepository.cancelJob(jobId, user.id!!))
+        }
     }
 
     @Test
@@ -199,6 +235,13 @@ class DownloadServiceTest {
         } throws ScraperException("DDoS challenge timed out")
         coEvery {
             solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gd/md5/$md5",
+                any(),
+                any()
+            )
+        } returns PageWithCookies(detailHtml, mapOf("detail-gd" to "cookie"))
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
                 match { it.startsWith("https://annas-archive.gd/slow_download/") },
                 30_000,
                 any()
@@ -216,15 +259,20 @@ class DownloadServiceTest {
         val status = awaitTerminalStatus(jobId, user.id!!)
 
         assertEquals("completed", status.status)
-        coVerify {
+        coVerifyOrder {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gd/md5/$md5",
+                any(),
+                any()
+            )
             solvearrClient.fetchPageWithCookies(
                 match { it.startsWith("https://annas-archive.gd/slow_download/") },
                 30_000,
                 any()
             )
         }
-        coVerify { solvearrClient.createSession(match { it.startsWith("booksearch-$jobId-") }) }
-        coVerify { solvearrClient.destroySession(match { it.startsWith("booksearch-$jobId-") }) }
+        coVerify(exactly = 1) { solvearrClient.createSession("booksearch-annas-downloads") }
+        coVerify(exactly = 0) { solvearrClient.destroySession(any()) }
         coVerify {
             impersonatorHttpClient.fetchBinary(
                 any(),
@@ -233,11 +281,102 @@ class DownloadServiceTest {
             )
         }
         assertEquals(
-            mapOf("detail" to "cookie", "slow" to "cookie"),
+            mapOf("detail-gd" to "cookie", "slow" to "cookie"),
             captureBinaryCookies()
         )
 
         File(scraperConfig.dataPath, status.filePath!!).delete()
+        Unit
+    }
+
+    @Test
+    fun shouldUseTorrentFallbackImmediatelyAfterDdosGuardChallenge() = runBlocking {
+        val user = userRepository.create("torrent@test.com", "hash", "Torrent User", false, false)
+        val md5 = "0123456789abcdef0123456789abcdef"
+        insertTestBook(md5)
+        val torrentFallbackClient = mockk<TorrentFallbackClient>()
+        val detailHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-detail-page.html")!!
+            .readText()
+            .replace(
+                "</body>",
+                """
+                    <ul>
+                      <li>
+                        <a href="/dyn/small_file/torrents/test.torrent">Public torrent</a>
+                        file “aacid__upload_files_polish__target”
+                      </li>
+                    </ul>
+                    </body>
+                """.trimIndent()
+            )
+        val torrentBytes = "epub-from-torrent".toByteArray()
+
+        downloadService = DownloadService(
+            downloadJobRepository = downloadJobRepository,
+            bookRepository = bookRepository,
+            userLibraryRepository = userLibraryRepository,
+            solvearrClient = solvearrClient,
+            impersonatorHttpClient = impersonatorHttpClient,
+            mirrorService = mirrorService,
+            scraperConfig = scraperConfig,
+            metadataService = null,
+            torrentFallbackClient = torrentFallbackClient
+        )
+
+        every { mirrorService.getWorkingMirrors() } returns listOf(
+            "https://annas-archive.gl",
+            "https://annas-archive.gd"
+        )
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gl/md5/$md5",
+                any(),
+                any()
+            )
+        } returns PageWithCookies(detailHtml, mapOf("detail" to "cookie"))
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gl/slow_download/") },
+                30_000,
+                any()
+            )
+        } throws ScraperException("DDoS challenge timed out")
+        coEvery {
+            torrentFallbackClient.download(
+                any(),
+                md5,
+                "epub",
+                "https://annas-archive.gl",
+                any(),
+                any()
+            )
+        } returns torrentBytes
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerify(exactly = 1) {
+            torrentFallbackClient.download(
+                jobId,
+                md5,
+                "epub",
+                "https://annas-archive.gl",
+                match { it.fileLevel1 == "aacid__upload_files_polish__target" },
+                any()
+            )
+        }
+        coVerify(exactly = 0) {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gd/md5/$md5",
+                any(),
+                any()
+            )
+        }
+
+        File(scraperConfig.dataPath, status.filePath!!).delete()
+        Unit
     }
 
     @Test

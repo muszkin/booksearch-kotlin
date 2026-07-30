@@ -113,9 +113,13 @@ class DownloadJobRepository(private val dsl: DSLContext) {
     companion object {
         val ACTIVE_STATUSES = listOf(
             "queued",
+            "fetching_fast_download",
             "fetching_detail",
             "fetching_slow_download",
             "waiting_for_download_slot",
+            "fetching_torrent_metadata",
+            "waiting_for_torrent_peers",
+            "downloading_torrent_piece",
             "downloading_file",
             "extracting_metadata"
         )

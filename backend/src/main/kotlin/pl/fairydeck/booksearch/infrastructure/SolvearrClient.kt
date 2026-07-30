@@ -5,6 +5,9 @@ import io.ktor.client.engine.okhttp.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
@@ -16,6 +19,7 @@ class SolvearrClient(
 ) {
 
     private val logger = LoggerFactory.getLogger(SolvearrClient::class.java)
+    private val requestMutex = Mutex()
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -47,7 +51,8 @@ class SolvearrClient(
             cmd = "request.get",
             url = url,
             maxTimeout = maxTimeoutMs,
-            session = sessionId
+            session = sessionId,
+            sessionTtlMinutes = sessionId?.let { config.solvearrSessionTtlMinutes }
         )
 
         return try {
@@ -72,6 +77,9 @@ class SolvearrClient(
 
             val html = solution.response.ifBlank {
                 throw ScraperException("Empty response from Solvearr")
+            }
+            if (solution.status >= 400 || ImpersonatorHttpClient.isChallengePage(html)) {
+                throw ScraperException("Browser verification returned a challenge page")
             }
 
             val cookies = solution.cookies
@@ -121,21 +129,23 @@ class SolvearrClient(
     }
 
     private suspend fun execute(requestBody: SolvearrRequest): Pair<HttpStatusCode, SolvearrResponse> {
-        val response = httpClient.post("${config.solvearrUrl}/v1") {
-            contentType(ContentType.Application.Json)
-            setBody(json.encodeToString(requestBody))
-        }
-        val responseBody = response.bodyAsText()
-        val solvearrResponse = try {
-            json.decodeFromString<SolvearrResponse>(responseBody)
-        } catch (e: Exception) {
-            throw ScraperException(
-                "Invalid response from browser verification service (HTTP ${response.status})",
-                e
-            )
-        }
+        return requestMutex.withLock {
+            val response = httpClient.post("${config.solvearrUrl}/v1") {
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(requestBody))
+            }
+            val responseBody = response.bodyAsText()
+            val solvearrResponse = try {
+                json.decodeFromString<SolvearrResponse>(responseBody)
+            } catch (e: Exception) {
+                throw ScraperException(
+                    "Invalid response from browser verification service (HTTP ${response.status})",
+                    e
+                )
+            }
 
-        return response.status to solvearrResponse
+            response.status to solvearrResponse
+        }
     }
 
     fun close() {
@@ -158,7 +168,9 @@ private data class SolvearrRequest(
     val cmd: String,
     val url: String? = null,
     val maxTimeout: Int? = null,
-    val session: String? = null
+    val session: String? = null,
+    @SerialName("session_ttl_minutes")
+    val sessionTtlMinutes: Int? = null
 )
 
 @Serializable
