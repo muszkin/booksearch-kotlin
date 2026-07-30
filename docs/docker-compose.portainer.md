@@ -71,7 +71,10 @@ can interrupt an active book download while doing nothing for source-specific
 DDoS challenges. The backend handles those separately with a bounded source
 pipeline:
 
-1. If `ANNA_ARCHIVE_API_KEY` is configured, try the stable fast-download API.
+1. If `ANNA_ARCHIVE_API_KEY` is configured, use the stable member JSON API and
+   verify the downloaded file against its Anna's Archive MD5. If resolving,
+   transferring, or verifying the fast download fails, continue with the
+   browser flow.
 2. Open each detail page in one serialized, persistent FlareSolverr session and
    try the no-waitlist slow-download links. FlareSolverr rotates that session
    after `FLARESOLVERR_SESSION_TTL_MINUTES` (24 hours by default).

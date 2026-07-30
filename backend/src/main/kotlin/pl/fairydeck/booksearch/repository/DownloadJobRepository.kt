@@ -114,6 +114,7 @@ class DownloadJobRepository(private val dsl: DSLContext) {
         val ACTIVE_STATUSES = listOf(
             "queued",
             "fetching_fast_download",
+            "downloading_fast_download",
             "fetching_detail",
             "switching_egress",
             "fetching_slow_download",

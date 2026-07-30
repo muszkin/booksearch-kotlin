@@ -8,7 +8,7 @@ A self-hosted web application for searching, downloading, and managing e-books f
 - Multi-user support with JWT authentication and role-based access (super-admin, regular user)
 - Personal library per user with download, deletion, and ownership tracking
 - Asynchronous book downloads with job status polling
-- Resilient download pipeline: membership API, browser-assisted slow download, and checksum-verified public torrent fallback
+- Resilient download pipeline: member JSON API with checksum verification, browser-assisted slow download, and public torrent fallback
 - EPUB to MOBI (and reverse) conversion via Calibre
 - Send books to Kindle and PocketBook devices over SMTP
 - Delivery history with per-book and per-device indicators
@@ -70,7 +70,7 @@ Mailpit UI (dev): `http://localhost:8025`
 | `MIRROR_DOMAINS` | `annas-archive.gd,...` | Comma-separated list of Anna's Archive mirror domains |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Maximum parallel download jobs |
 | `DATA_PATH` | `./data/library` | Directory for downloaded book files |
-| `ANNA_ARCHIVE_API_KEY` | unset | Optional membership key for the fast-download API |
+| `ANNA_ARCHIVE_API_KEY` | unset | Optional membership secret key; when set, the JSON fast-download API is tried before browser and torrent fallbacks |
 | `FLARESOLVERR_PROXY_URL` | unset | Optional SOCKS/HTTP proxy used after direct DDoS-Guard challenges (Compose uses the private Tor sidecar) |
 | `FLARESOLVERR_SESSION_TTL_MINUTES` | `1440` | Rotate the persistent browser session after this many minutes |
 | `TORRENT_FALLBACK_ENABLED` | `true` | Use public torrents when DDoS-Guard blocks slow-download pages |

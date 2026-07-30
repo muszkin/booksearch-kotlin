@@ -10,6 +10,7 @@ const props = defineProps<{
 const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   fetching_fast_download: 'Checking fast download',
+  downloading_fast_download: 'Downloading through member API',
   fetching_detail: 'Opening book page',
   switching_egress: 'Changing network route after browser verification',
   fetching_slow_download: 'Waiting for download link',

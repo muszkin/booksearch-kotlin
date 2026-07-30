@@ -16,6 +16,7 @@ import pl.fairydeck.booksearch.repository.DownloadSourceRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
 import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 
 class DownloadServiceTest {
@@ -115,6 +116,7 @@ class DownloadServiceTest {
             status.status in listOf(
                 "queued",
                 "fetching_fast_download",
+                "downloading_fast_download",
                 "fetching_detail",
                 "fetching_slow_download",
                 "fetching_torrent_metadata",
@@ -161,6 +163,7 @@ class DownloadServiceTest {
 
         val fallbackStatuses = listOf(
             "fetching_fast_download",
+            "downloading_fast_download",
             "switching_egress",
             "fetching_torrent_metadata",
             "waiting_for_torrent_peers",
@@ -203,6 +206,162 @@ class DownloadServiceTest {
             1,
             downloadJobRepository.findAllByUserId(user.id!!).totalCount
         )
+    }
+
+    @Test
+    fun shouldUseMemberJsonApiBeforeBrowserFlow() = runBlocking {
+        val user = userRepository.create("member-api@test.com", "hash", "API User", false, false)
+        val fileBytes = "member-api-epub".toByteArray()
+        val md5 = md5(fileBytes)
+        val apiConfig = scraperConfig.copy(annaArchiveApiKey = "member-secret")
+        val fastDownloadClient = mockk<AnnaArchiveFastDownloadClient>()
+        insertTestBook(md5)
+
+        every { mirrorService.getDownloadMirrors() } returns
+            listOf("https://annas-archive.gl")
+        coEvery {
+            fastDownloadClient.resolveDownload(
+                md5,
+                listOf("https://annas-archive.gl")
+            )
+        } returns FastDownload(
+            url = "https://download.example/member.epub",
+            downloadsLeft = 49,
+            downloadsPerDay = 50
+        )
+        coEvery {
+            impersonatorHttpClient.fetchBinary(
+                "https://download.example/member.epub",
+                emptyMap(),
+                "TestAgent"
+            )
+        } returns fileBytes
+
+        downloadService = DownloadService(
+            downloadJobRepository = downloadJobRepository,
+            bookRepository = bookRepository,
+            userLibraryRepository = userLibraryRepository,
+            solvearrClient = solvearrClient,
+            impersonatorHttpClient = impersonatorHttpClient,
+            mirrorService = mirrorService,
+            scraperConfig = apiConfig,
+            metadataService = null,
+            fastDownloadClient = fastDownloadClient
+        )
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerify(exactly = 1) {
+            fastDownloadClient.resolveDownload(md5, any())
+        }
+        coVerify(exactly = 0) { solvearrClient.createSession(any(), any()) }
+        assertArrayEquals(
+            fileBytes,
+            File(apiConfig.dataPath, status.filePath!!).readBytes()
+        )
+
+        File(apiConfig.dataPath, status.filePath!!).delete()
+        Unit
+    }
+
+    @Test
+    fun shouldFallBackToBrowserWhenMemberDownloadFailsChecksum() = runBlocking {
+        val user = userRepository.create(
+            "member-fallback@test.com",
+            "hash",
+            "API Fallback User",
+            false,
+            false
+        )
+        val expectedBytes = "expected-member-api-epub".toByteArray()
+        val fallbackBytes = "browser-fallback-epub".toByteArray()
+        val md5 = md5(expectedBytes)
+        val apiConfig = scraperConfig.copy(annaArchiveApiKey = "member-secret")
+        val fastDownloadClient = mockk<AnnaArchiveFastDownloadClient>()
+        val detailHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-detail-page.html")!!
+            .readText()
+        val slowDownloadHtml = javaClass.classLoader
+            .getResource("fixtures/annas-archive-slow-download-page.html")!!
+            .readText()
+        insertTestBook(md5)
+
+        every { mirrorService.getDownloadMirrors() } returns
+            listOf("https://annas-archive.gl")
+        coEvery {
+            fastDownloadClient.resolveDownload(md5, any())
+        } returns FastDownload(
+            url = "https://download.example/member.epub",
+            downloadsLeft = 48,
+            downloadsPerDay = 50
+        )
+        coEvery {
+            impersonatorHttpClient.fetchBinary(
+                "https://download.example/member.epub",
+                emptyMap(),
+                "TestAgent"
+            )
+        } returns "invalid-fast-download".toByteArray()
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                "https://annas-archive.gl/md5/$md5",
+                any(),
+                any()
+            )
+        } returns PageWithCookies(detailHtml, mapOf("detail" to "cookie"))
+        coEvery {
+            solvearrClient.fetchPageWithCookies(
+                match { it.startsWith("https://annas-archive.gl/slow_download/") },
+                30_000,
+                any()
+            )
+        } returns PageWithCookies(
+            slowDownloadHtml,
+            mapOf("slow" to "cookie"),
+            "FlareSolverrAgent"
+        )
+        coEvery {
+            impersonatorHttpClient.fetchBinary(
+                match { it != "https://download.example/member.epub" },
+                any(),
+                any()
+            )
+        } returns fallbackBytes
+
+        downloadService = DownloadService(
+            downloadJobRepository = downloadJobRepository,
+            bookRepository = bookRepository,
+            userLibraryRepository = userLibraryRepository,
+            solvearrClient = solvearrClient,
+            impersonatorHttpClient = impersonatorHttpClient,
+            mirrorService = mirrorService,
+            scraperConfig = apiConfig,
+            metadataService = null,
+            fastDownloadClient = fastDownloadClient
+        )
+
+        val jobId = downloadService.startDownload(user.id!!, md5)
+        val status = awaitTerminalStatus(jobId, user.id!!)
+
+        assertEquals("completed", status.status)
+        coVerifyOrder {
+            fastDownloadClient.resolveDownload(md5, any())
+            impersonatorHttpClient.fetchBinary(
+                "https://download.example/member.epub",
+                emptyMap(),
+                "TestAgent"
+            )
+            solvearrClient.createSession("booksearch-annas-downloads", null)
+        }
+        assertArrayEquals(
+            fallbackBytes,
+            File(apiConfig.dataPath, status.filePath!!).readBytes()
+        )
+
+        File(apiConfig.dataPath, status.filePath!!).delete()
+        Unit
     }
 
     @Test
@@ -636,4 +795,11 @@ class DownloadServiceTest {
         coVerify { impersonatorHttpClient.fetchBinary(any(), capture(cookies), any()) }
         return cookies.captured
     }
+
+    private fun md5(bytes: ByteArray): String =
+        MessageDigest.getInstance("MD5")
+            .digest(bytes)
+            .joinToString("") {
+                (it.toInt() and 0xff).toString(16).padStart(2, '0')
+            }
 }

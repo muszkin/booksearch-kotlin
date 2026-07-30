@@ -18,7 +18,15 @@ class AnnaArchiveFastDownloadClientTest {
         val engine = MockEngine { request ->
             assertEquals("secret-member-key", request.url.parameters["key"])
             respond(
-                content = """{"download_url":"https://download.example/book.epub"}""",
+                content = """
+                    {
+                      "download_url":"https://download.example/book.epub",
+                      "account_fast_download_info":{
+                        "downloads_left":49,
+                        "downloads_per_day":50
+                      }
+                    }
+                """.trimIndent(),
                 status = HttpStatusCode.OK,
                 headers = headersOf(HttpHeaders.ContentType, "application/json")
             )
@@ -28,12 +36,14 @@ class AnnaArchiveFastDownloadClientTest {
             httpClientOverride = HttpClient(engine)
         )
 
-        val result = client.resolveDownloadUrl(
+        val result = client.resolveDownload(
             "3df78aab7902016843715ce13968603e",
             listOf("https://annas-archive.gl")
         )
 
-        assertEquals("https://download.example/book.epub", result)
+        assertEquals("https://download.example/book.epub", result?.url)
+        assertEquals(49, result?.downloadsLeft)
+        assertEquals(50, result?.downloadsPerDay)
     }
 
     @Test
@@ -48,7 +58,7 @@ class AnnaArchiveFastDownloadClientTest {
             httpClientOverride = HttpClient(engine)
         )
 
-        val result = client.resolveDownloadUrl(
+        val result = client.resolveDownload(
             "3df78aab7902016843715ce13968603e",
             listOf("https://annas-archive.gl")
         )
@@ -71,7 +81,7 @@ class AnnaArchiveFastDownloadClientTest {
             httpClientOverride = HttpClient(engine)
         )
 
-        val result = client.resolveDownloadUrl(
+        val result = client.resolveDownload(
             "3df78aab7902016843715ce13968603e",
             listOf("https://annas-archive.gl", "https://annas-archive.gd")
         )

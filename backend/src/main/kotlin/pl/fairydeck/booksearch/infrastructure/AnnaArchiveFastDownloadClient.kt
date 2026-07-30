@@ -10,6 +10,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
+import java.net.URI
 
 class AnnaArchiveFastDownloadClient(
     private val config: ScraperConfig,
@@ -20,7 +21,7 @@ class AnnaArchiveFastDownloadClient(
     private val json = Json { ignoreUnknownKeys = true }
     private val httpClient = httpClientOverride ?: HttpClient(OkHttp)
 
-    suspend fun resolveDownloadUrl(bookMd5: String, mirrors: List<String>): String? {
+    suspend fun resolveDownload(bookMd5: String, mirrors: List<String>): FastDownload? {
         val apiKey = config.annaArchiveApiKey ?: return null
 
         for (mirror in mirrors) {
@@ -32,14 +33,19 @@ class AnnaArchiveFastDownloadClient(
                 val body = json.decodeFromString<FastDownloadResponse>(response.bodyAsText())
 
                 if (response.status.isSuccess()) {
-                    val downloadUrl = body.downloadUrl?.takeIf { it.startsWith("https://") }
+                    val downloadUrl = body.downloadUrl?.takeIf(::isHttpUrl)
                     if (downloadUrl != null) {
                         logger.info(
-                            "Resolved {} through Anna's Archive fast-download API on {}",
+                            "Resolved {} through Anna's Archive JSON API on {} ({} downloads left)",
                             bookMd5,
-                            mirror
+                            mirror,
+                            body.accountFastDownloadInfo?.downloadsLeft ?: "unknown"
                         )
-                        return downloadUrl
+                        return FastDownload(
+                            url = downloadUrl,
+                            downloadsLeft = body.accountFastDownloadInfo?.downloadsLeft,
+                            downloadsPerDay = body.accountFastDownloadInfo?.downloadsPerDay
+                        )
                     }
                 }
 
@@ -66,6 +72,12 @@ class AnnaArchiveFastDownloadClient(
         return null
     }
 
+    private fun isHttpUrl(value: String): Boolean {
+        val scheme = runCatching { URI(value).scheme }.getOrNull()
+        return scheme.equals("https", ignoreCase = true) ||
+            scheme.equals("http", ignoreCase = true)
+    }
+
     fun close() {
         if (httpClientOverride == null) {
             httpClient.close()
@@ -77,9 +89,25 @@ class AnnaArchiveFastDownloadClient(
     }
 }
 
+data class FastDownload(
+    val url: String,
+    val downloadsLeft: Int?,
+    val downloadsPerDay: Int?
+)
+
 @Serializable
 private data class FastDownloadResponse(
     @SerialName("download_url")
     val downloadUrl: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    @SerialName("account_fast_download_info")
+    val accountFastDownloadInfo: AccountFastDownloadInfo? = null
+)
+
+@Serializable
+private data class AccountFastDownloadInfo(
+    @SerialName("downloads_left")
+    val downloadsLeft: Int? = null,
+    @SerialName("downloads_per_day")
+    val downloadsPerDay: Int? = null
 )

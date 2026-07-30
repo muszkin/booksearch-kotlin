@@ -50,6 +50,15 @@ describe('DownloadProgressBar', () => {
     expect(wrapper.text()).toContain('40%')
   })
 
+  it('shows when the member JSON API is transferring the file', () => {
+    const wrapper = mount(DownloadProgressBar, {
+      props: { status: 'downloading_fast_download', progress: 30 },
+    })
+
+    expect(wrapper.text()).toContain('Downloading through member API')
+    expect(wrapper.text()).toContain('30%')
+  })
+
   it('explains torrent fallback states', () => {
     const wrapper = mount(DownloadProgressBar, {
       props: { status: 'waiting_for_torrent_peers', progress: 50 },

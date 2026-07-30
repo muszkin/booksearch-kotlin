@@ -26,6 +26,7 @@ import pl.fairydeck.booksearch.repository.DownloadSourceRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import java.io.File
 import java.net.URI
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 class DownloadService(
@@ -127,37 +128,12 @@ class DownloadService(
                 throw IllegalStateException("No download mirror is configured")
             }
 
-            val source = resolveDownloadSource(
+            val fileBytes = downloadBook(
                 bookMd5 = bookMd5,
                 mirrors = mirrors,
-                jobId = jobId
+                jobId = jobId,
+                format = format
             )
-            val fileBytes = when (source) {
-                is DownloadSource.Direct -> {
-                    downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
-                    logger.info("Job {}: downloading resolved file", jobId)
-                    impersonatorHttpClient.fetchBinary(
-                        source.url,
-                        source.cookies,
-                        source.userAgent
-                    )
-                }
-                is DownloadSource.Torrent -> {
-                    val fallbackClient = torrentFallbackClient
-                        ?: throw IllegalStateException("Torrent fallback is not available")
-                    fallbackClient.download(
-                        jobId = jobId,
-                        bookMd5 = bookMd5,
-                        format = format,
-                        mirror = source.mirror,
-                        link = source.link
-                    ) { progress ->
-                        updateTorrentProgress(jobId, progress)
-                    }.also {
-                        downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
-                    }
-                }
-            }
 
             val userDir = File(scraperConfig.dataPath, userId.toString())
             userDir.mkdirs()
@@ -182,46 +158,117 @@ class DownloadService(
         }
     }
 
-    private suspend fun resolveDownloadSource(
+    private suspend fun downloadBook(
         jobId: Int,
         bookMd5: String,
-        mirrors: List<String>
-    ): DownloadSource {
-        if (fastDownloadClient != null && scraperConfig.annaArchiveApiKey != null) {
-            downloadJobRepository.updateProgress(jobId, "fetching_fast_download", 10)
-            val fastUrl = fastDownloadClient.resolveDownloadUrl(bookMd5, mirrors)
-            if (fastUrl != null) {
-                return DownloadSource.Direct(
-                    url = fastUrl,
-                    cookies = emptyMap(),
-                    userAgent = scraperConfig.userAgent
+        mirrors: List<String>,
+        format: String
+    ): ByteArray {
+        val fastDownload = resolveFastDownload(jobId, bookMd5, mirrors)
+        if (fastDownload != null) {
+            try {
+                downloadJobRepository.updateProgress(jobId, "downloading_fast_download", 30)
+                logger.info("Job {}: downloading through Anna's Archive JSON API", jobId)
+                val bytes = impersonatorHttpClient.fetchBinary(
+                    fastDownload.url,
+                    emptyMap(),
+                    scraperConfig.userAgent
+                )
+                verifyFastDownloadChecksum(bookMd5, bytes)
+                return bytes
+            } catch (error: Exception) {
+                logger.warn(
+                    "Job {}: JSON API transfer failed ({}); falling back to the browser flow",
+                    jobId,
+                    error.javaClass.simpleName
                 )
             }
         }
 
-        return downloadResolutionMutex.withLock {
-            try {
-                solvearrClient.createSession(DOWNLOAD_SESSION_ID)
-                resolveFreeDownloadSource(jobId, bookMd5, mirrors, DOWNLOAD_SESSION_ID)
-            } catch (error: Exception) {
-                val proxyUrl = scraperConfig.solvearrProxyUrl
-                if (proxyUrl == null || !isChallengeFailure(error)) {
-                    throw error
-                }
+        val source = resolveLegacyDownloadSource(jobId, bookMd5, mirrors)
+        return downloadResolvedSource(jobId, bookMd5, format, source)
+    }
 
-                logger.warn(
-                    "Job {}: all direct attempts were challenged; switching browser egress",
-                    jobId
-                )
-                downloadJobRepository.updateProgress(jobId, "switching_egress", 20)
-                solvearrClient.createSession(DOWNLOAD_PROXY_SESSION_ID, proxyUrl)
-                resolveFreeDownloadSource(
-                    jobId,
-                    bookMd5,
-                    mirrors,
-                    DOWNLOAD_PROXY_SESSION_ID
-                )
+    private suspend fun resolveFastDownload(
+        jobId: Int,
+        bookMd5: String,
+        mirrors: List<String>
+    ) = if (fastDownloadClient != null && scraperConfig.annaArchiveApiKey != null) {
+        downloadJobRepository.updateProgress(jobId, "fetching_fast_download", 10)
+        fastDownloadClient.resolveDownload(bookMd5, mirrors)
+    } else {
+        null
+    }
+
+    private suspend fun resolveLegacyDownloadSource(
+        jobId: Int,
+        bookMd5: String,
+        mirrors: List<String>
+    ): DownloadSource = downloadResolutionMutex.withLock {
+        try {
+            solvearrClient.createSession(DOWNLOAD_SESSION_ID)
+            resolveFreeDownloadSource(jobId, bookMd5, mirrors, DOWNLOAD_SESSION_ID)
+        } catch (error: Exception) {
+            val proxyUrl = scraperConfig.solvearrProxyUrl
+            if (proxyUrl == null || !isChallengeFailure(error)) {
+                throw error
             }
+
+            logger.warn(
+                "Job {}: all direct attempts were challenged; switching browser egress",
+                jobId
+            )
+            downloadJobRepository.updateProgress(jobId, "switching_egress", 20)
+            solvearrClient.createSession(DOWNLOAD_PROXY_SESSION_ID, proxyUrl)
+            resolveFreeDownloadSource(
+                jobId,
+                bookMd5,
+                mirrors,
+                DOWNLOAD_PROXY_SESSION_ID
+            )
+        }
+    }
+
+    private suspend fun downloadResolvedSource(
+        jobId: Int,
+        bookMd5: String,
+        format: String,
+        source: DownloadSource
+    ): ByteArray = when (source) {
+        is DownloadSource.Direct -> {
+            downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
+            logger.info("Job {}: downloading resolved file through the browser flow", jobId)
+            impersonatorHttpClient.fetchBinary(
+                source.url,
+                source.cookies,
+                source.userAgent
+            )
+        }
+        is DownloadSource.Torrent -> {
+            val fallbackClient = torrentFallbackClient
+                ?: throw IllegalStateException("Torrent fallback is not available")
+            fallbackClient.download(
+                jobId = jobId,
+                bookMd5 = bookMd5,
+                format = format,
+                mirror = source.mirror,
+                link = source.link
+            ) { progress ->
+                updateTorrentProgress(jobId, progress)
+            }.also {
+                downloadJobRepository.updateProgress(jobId, "downloading_file", 60)
+            }
+        }
+    }
+
+    private fun verifyFastDownloadChecksum(bookMd5: String, bytes: ByteArray) {
+        val checksum = MessageDigest.getInstance("MD5")
+            .digest(bytes)
+            .joinToString("") {
+                (it.toInt() and 0xff).toString(16).padStart(2, '0')
+            }
+        if (!checksum.equals(bookMd5, ignoreCase = true)) {
+            throw IllegalStateException("Fast download checksum mismatch")
         }
     }
 

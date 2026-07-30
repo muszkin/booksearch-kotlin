@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.atomic.AtomicLong
 
 class ImpersonatorHttpClient(private val config: ScraperConfig) {
@@ -116,18 +117,27 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
                     val response = plainHttpClient.newCall(request).execute()
 
                     if (!response.isSuccessful) {
-                        throw IOException("HTTP ${response.code} downloading $url")
+                        throw IOException(
+                            "HTTP ${response.code} downloading file from ${safeHost(url)}"
+                        )
                     }
 
                     response.body?.bytes()
-                        ?: throw IOException("Empty response body downloading $url")
+                        ?: throw IOException(
+                            "Empty response body downloading file from ${safeHost(url)}"
+                        )
                 }
 
                 lastRequestTime.set(System.currentTimeMillis())
                 return result
 
             } catch (e: IOException) {
-                logger.error("Binary download failed on attempt {} for URL: {}", attempt + 1, url, e)
+                logger.error(
+                    "Binary download failed on attempt {} from host {}: {}",
+                    attempt + 1,
+                    safeHost(url),
+                    e.message
+                )
                 lastException = e
                 if (attempt < config.maxRetries) {
                     delay(delayMs)
@@ -137,10 +147,16 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         }
 
         throw ScraperException(
-            "Failed to download binary from $url after ${config.maxRetries + 1} attempts",
+            "Failed to download binary from ${safeHost(url)} after ${config.maxRetries + 1} attempts",
             lastException
         )
     }
+
+    private fun safeHost(url: String): String =
+        runCatching { URI(url).host }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "remote host"
 
     companion object {
         private val STRONG_CHALLENGE_MARKERS = listOf(
