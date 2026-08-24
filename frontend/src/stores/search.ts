@@ -13,6 +13,10 @@ export interface Facet {
 }
 
 const UNKNOWN_VALUE = 'Unknown'
+/** Anna's Archive packs every contributor into one field, separated by semicolons. */
+const AUTHOR_SEPARATOR = /\s*;\s*/
+/** Publisher strings carry the edition year: "AMBER, Wydawnictwo, 2011". */
+const TRAILING_YEAR = /,\s*(1[0-9]|20)\d{2}\s*$/
 const POLL_INTERVAL_MS = 1500
 const POLL_TIMEOUT_MS = 5 * 60 * 1000
 const TIMEOUT_MESSAGE = 'Search timed out. Try a narrower query.'
@@ -33,8 +37,8 @@ export const useSearchStore = defineStore('search', () => {
   const sortDirection = ref<SortDirection>('none')
 
   const facets = computed(() => ({
-    authors: facetFor((book) => book.author),
-    publishers: facetFor((book) => book.publisher),
+    authors: facetForMany(authorsOf),
+    publishers: facetFor(publisherOf),
     formats: facetFor((book) => book.format),
     languages: facetFor((book) => book.language),
   }))
@@ -42,8 +46,9 @@ export const useSearchStore = defineStore('search', () => {
   const visibleResults = computed(() => {
     const kept = results.value.filter(
       (book) =>
-        !hiddenAuthors.value.has(labelOf(book.author)) &&
-        !hiddenPublishers.value.has(labelOf(book.publisher)) &&
+        // A co-authored book survives while any one of its authors is still visible.
+        authorsOf(book).some((author) => !hiddenAuthors.value.has(author)) &&
+        !hiddenPublishers.value.has(publisherOf(book)) &&
         !hiddenFormats.value.has(labelOf(book.format)) &&
         !hiddenLanguages.value.has(labelOf(book.language)),
     )
@@ -110,14 +115,33 @@ export const useSearchStore = defineStore('search', () => {
   }
 
   function facetFor(pick: (book: BookResult) => string): Facet[] {
+    return facetForMany((book) => [pick(book)])
+  }
+
+  /** Counts each value once per book, so a co-author is not counted twice for one title. */
+  function facetForMany(pick: (book: BookResult) => string[]): Facet[] {
     const counts = new Map<string, number>()
     for (const book of results.value) {
-      const label = labelOf(pick(book))
-      counts.set(label, (counts.get(label) ?? 0) + 1)
+      for (const value of new Set(pick(book))) {
+        const label = labelOf(value)
+        counts.set(label, (counts.get(label) ?? 0) + 1)
+      }
     }
     return [...counts.entries()]
       .map(([value, count]) => ({ value, count }))
       .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+  }
+
+  function authorsOf(book: BookResult): string[] {
+    const names = book.author
+      .split(AUTHOR_SEPARATOR)
+      .map((name) => name.trim())
+      .filter((name) => name !== '')
+    return names.length === 0 ? [UNKNOWN_VALUE] : names
+  }
+
+  function publisherOf(book: BookResult): string {
+    return labelOf(book.publisher.replace(TRAILING_YEAR, ''))
   }
 
   function labelOf(value: string): string {

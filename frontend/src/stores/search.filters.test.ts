@@ -194,3 +194,75 @@ describe('sorting by release year', () => {
     expect(store.visibleResults.map((b) => b.year)).toEqual(['1987', ''])
   })
 })
+
+describe('facet value normalisation', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('splits a semicolon separated author list into individual names', async () => {
+    const store = await storeWith([
+      book({ author: 'Ross Macdonald; Włodzimierz Grabowski; Dorota Wieczorek' }),
+    ])
+
+    expect(store.facets.authors.map((a) => a.value).sort()).toEqual([
+      'Dorota Wieczorek',
+      'Ross Macdonald',
+      'Włodzimierz Grabowski',
+    ])
+  })
+
+  it('counts an author once per book they appear in', async () => {
+    const store = await storeWith([
+      book({ author: 'Stefan Gemmel; Paweł Wieczorek' }),
+      book({ author: 'Paweł Wieczorek' }),
+    ])
+
+    expect(store.facets.authors).toContainEqual({ value: 'Paweł Wieczorek', count: 2 })
+    expect(store.facets.authors).toContainEqual({ value: 'Stefan Gemmel', count: 1 })
+  })
+
+  it('keeps a book while any of its authors is still visible', async () => {
+    const store = await storeWith([book({ author: 'Stefan Gemmel; Paweł Wieczorek' })])
+
+    store.hideAuthor('Stefan Gemmel')
+
+    expect(store.visibleResults).toHaveLength(1)
+  })
+
+  it('drops a book once every one of its authors is hidden', async () => {
+    const store = await storeWith([book({ author: 'Stefan Gemmel; Paweł Wieczorek' })])
+
+    store.hideAuthor('Stefan Gemmel')
+    store.hideAuthor('Paweł Wieczorek')
+
+    expect(store.visibleResults).toHaveLength(0)
+  })
+
+  it('strips the trailing year from a publisher so editions group together', async () => {
+    const store = await storeWith([
+      book({ publisher: 'AMBER, Wydawnictwo, 2011' }),
+      book({ publisher: 'AMBER, Wydawnictwo, 2013' }),
+    ])
+
+    expect(store.facets.publishers).toEqual([{ value: 'AMBER, Wydawnictwo', count: 2 }])
+  })
+
+  it('hides every edition of a publisher at once', async () => {
+    const store = await storeWith([
+      book({ publisher: 'AMBER, Wydawnictwo, 2011' }),
+      book({ publisher: 'Solaris, PS, 2014' }),
+    ])
+
+    store.hidePublisher('AMBER, Wydawnictwo')
+
+    expect(store.visibleResults.map((b) => b.publisher)).toEqual(['Solaris, PS, 2014'])
+  })
+
+  it('leaves a publisher name that does not end in a year alone', async () => {
+    const store = await storeWith([book({ publisher: 'Wydawnictwo Literackie' })])
+
+    expect(store.facets.publishers).toEqual([{ value: 'Wydawnictwo Literackie', count: 1 }])
+  })
+})
