@@ -70,7 +70,7 @@ Mailpit UI (dev): `http://localhost:8025`
 | `MIRROR_DOMAINS` | `annas-archive.gd,...` | Comma-separated list of Anna's Archive mirror domains |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Maximum parallel download jobs |
 | `DATA_PATH` | `./data/library` | Directory for downloaded book files |
-| `ANNA_ARCHIVE_API_KEY` | unset | Optional membership secret key; when set, the JSON fast-download API is tried before browser and torrent fallbacks |
+| `ANNA_ARCHIVE_API_KEY` | unset | Membership secret key. **Required for search** — DDoS-Guard challenges `/search` for anonymous callers, and FlareSolverr no longer solves it. Also enables the JSON fast-download API ahead of browser and torrent fallbacks |
 | `FLARESOLVERR_PROXY_URL` | unset | Optional SOCKS/HTTP proxy used after direct DDoS-Guard challenges (Compose uses the private Tor sidecar) |
 | `FLARESOLVERR_SESSION_TTL_MINUTES` | `1440` | Rotate the persistent browser session after this many minutes |
 | `TORRENT_FALLBACK_ENABLED` | `true` | Use public torrents when DDoS-Guard blocks slow-download pages |

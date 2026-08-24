@@ -67,6 +67,12 @@ small test page through its real browser API. Two consecutive failures mark the
 container unhealthy, and autoheal restarts it.
 
 This is health-based rather than a fixed 24-hour restart. A scheduled restart
+`ANNA_ARCHIVE_API_KEY` is required for search to work at all. DDoS-Guard serves
+`/search` only to signed-in members, and FlareSolverr — which is deprecated and
+applies Cloudflare logic to DDoS-Guard — no longer solves that challenge. With the
+key set, the backend signs in once and fetches search pages over plain HTTP in
+seconds. Without it, search falls back to FlareSolverr and will fail.
+
 can interrupt an active book download while doing nothing for source-specific
 DDoS challenges. The backend handles those separately with a bounded source
 pipeline:
