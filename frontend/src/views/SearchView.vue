@@ -2,6 +2,7 @@
 import { ref, reactive, watch, computed, onMounted } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import SearchToolbar from '@/components/search/SearchToolbar.vue'
+import SearchFilters from '@/components/search/SearchFilters.vue'
 import BookCard from '@/components/search/BookCard.vue'
 import BookCardSkeleton from '@/components/search/BookCardSkeleton.vue'
 import SelectionDrawer from '@/components/search/SelectionDrawer.vue'
@@ -152,6 +153,24 @@ function handleDrawerClose() {
     @search="handleSearch"
   />
 
+  <SearchFilters
+    v-if="searchStore.hasResults && !searchStore.loading"
+    :facets="searchStore.facets"
+    :hidden-authors="searchStore.hiddenAuthors"
+    :hidden-publishers="searchStore.hiddenPublishers"
+    :hidden-formats="searchStore.hiddenFormats"
+    :hidden-languages="searchStore.hiddenLanguages"
+    :sort-direction="searchStore.sortDirection"
+    :visible-count="searchStore.visibleCount"
+    :total-count="searchStore.totalResults"
+    @toggle-author="searchStore.hideAuthor"
+    @toggle-publisher="searchStore.hidePublisher"
+    @toggle-format="searchStore.hideFormat"
+    @toggle-language="searchStore.hideLanguage"
+    @update:sort-direction="searchStore.sortDirection = $event"
+    @clear="searchStore.clearHidden"
+  />
+
   <div class="p-6" :class="{ 'lg:mr-80': drawerOpen }">
     <!-- Error state -->
     <div v-if="searchStore.error">
@@ -176,11 +195,8 @@ function handleDrawerClose() {
 
     <!-- Results state -->
     <div v-else-if="searchStore.hasResults">
-      <p class="text-sm text-zinc-400 mb-4" aria-live="polite">
-        {{ searchStore.totalResults }} results found
-      </p>
       <div class="flex flex-col gap-4">
-        <div v-for="book in searchStore.results" :key="book.md5">
+        <div v-for="book in searchStore.visibleResults" :key="book.md5">
           <AlertMessage
             v-if="downloadErrors.get(book.md5)"
             variant="error"

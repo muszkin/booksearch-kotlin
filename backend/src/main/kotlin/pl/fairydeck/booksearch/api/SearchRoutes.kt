@@ -7,6 +7,7 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import pl.fairydeck.booksearch.ErrorResponse
 import pl.fairydeck.booksearch.service.BookResult
+import pl.fairydeck.booksearch.service.ScraperService.Companion.ANY_VALUE
 import pl.fairydeck.booksearch.service.SearchService
 
 fun Route.searchRoutes(searchService: SearchService) {
@@ -26,13 +27,13 @@ fun Route.searchRoutes(searchService: SearchService) {
 
             val language = call.request.queryParameters["lang"] ?: "pl"
             if (language !in ALLOWED_LANGUAGES) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid language. Allowed: pl, en, de"))
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid language. Allowed: pl, en, de, any"))
                 return@post
             }
 
             val format = call.request.queryParameters["ext"] ?: "epub"
             if (format !in ALLOWED_FORMATS) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid format. Allowed: epub, mobi, pdf"))
+                call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid format. Allowed: epub, mobi, pdf, any"))
                 return@post
             }
 
@@ -90,8 +91,8 @@ data class SearchJobStatusResponse(
     val error: String? = null
 )
 
-private val ALLOWED_LANGUAGES = setOf("pl", "en", "de")
-private val ALLOWED_FORMATS = setOf("epub", "mobi", "pdf")
+private val ALLOWED_LANGUAGES = setOf("pl", "en", "de", ANY_VALUE)
+private val ALLOWED_FORMATS = setOf("epub", "mobi", "pdf", ANY_VALUE)
 private const val DEFAULT_MAX_PAGES = 3
 private const val MIN_MAX_PAGES = 1
 private const val MAX_MAX_PAGES = 10

@@ -13,16 +13,16 @@ export class SearchService {
      * Scraping Anna's Archive runs through a headless browser and regularly exceeds the 120 second proxy read timeout, so the search is queued and polled instead of being answered inline.
      *
      * @param q Search query
-     * @param lang Book language filter
-     * @param ext Book format filter
+     * @param lang Narrow the search to one language, or "any" to leave it unconstrained
+     * @param ext Narrow the search to one format, or "any" to leave it unconstrained
      * @param maxPages Maximum pages to scrape
      * @returns SearchStartedResponse Search job accepted
      * @throws ApiError
      */
     public static submitSearch(
         q: string,
-        lang: string = 'pl',
-        ext: string = 'epub',
+        lang: 'pl' | 'en' | 'de' | 'any' = 'pl',
+        ext: 'epub' | 'mobi' | 'pdf' | 'any' = 'epub',
         maxPages: number = 3,
     ): CancelablePromise<SearchStartedResponse> {
         return __request(OpenAPI, {

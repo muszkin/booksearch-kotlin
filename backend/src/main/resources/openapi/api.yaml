@@ -234,14 +234,16 @@ paths:
           in: query
           schema:
             type: string
+            enum: [pl, en, de, any]
             default: pl
-          description: Book language filter
+          description: Narrow the search to one language, or "any" to leave it unconstrained
         - name: ext
           in: query
           schema:
             type: string
+            enum: [epub, mobi, pdf, any]
             default: epub
-          description: Book format filter
+          description: Narrow the search to one format, or "any" to leave it unconstrained
         - name: maxPages
           in: query
           schema:

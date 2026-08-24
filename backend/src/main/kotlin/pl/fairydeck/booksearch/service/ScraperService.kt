@@ -69,12 +69,24 @@ class ScraperService(
         return solvearrClient.fetchPage(url)
     }
 
+    /**
+     * Anna's Archive narrows on whatever `lang`/`ext` it is given, so the only way to get
+     * a mixed result set worth filtering client-side is to leave the parameter out.
+     */
     private fun buildSearchUrl(mirror: String, query: String, language: String, format: String, page: Int): String {
-        val encodedQuery = java.net.URLEncoder.encode(query, Charsets.UTF_8)
-        return "$mirror/search?q=$encodedQuery&lang=$language&ext=$format&page=$page"
+        val parameters = buildList {
+            add("q=" + java.net.URLEncoder.encode(query, Charsets.UTF_8))
+            if (!language.isAny()) add("lang=$language")
+            if (!format.isAny()) add("ext=$format")
+            add("page=$page")
+        }
+        return "$mirror/search?" + parameters.joinToString("&")
     }
 
+    private fun String.isAny(): Boolean = equals(ANY_VALUE, ignoreCase = true)
+
     companion object {
+        const val ANY_VALUE = "any"
         const val DEFAULT_SCRAPE_BUDGET_MILLIS = 5L * 60 * 1000
     }
 }

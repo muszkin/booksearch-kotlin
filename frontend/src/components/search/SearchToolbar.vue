@@ -2,11 +2,12 @@
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseSelect from '@/components/base/BaseSelect.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import type { SearchFormat, SearchLanguage } from '@/stores/search'
 
 interface Props {
   query: string
-  language: string
-  format: string
+  language: SearchLanguage
+  format: SearchFormat
   loading: boolean
 }
 
@@ -14,21 +15,25 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'update:query': [value: string]
-  'update:language': [value: string]
-  'update:format': [value: string]
+  'update:language': [value: SearchLanguage]
+  'update:format': [value: SearchFormat]
   search: []
 }>()
 
+// "Any" leaves the parameter off the upstream query, which is the only way to get a
+// mixed result set for the client-side facet filters to work on.
 const languageOptions = [
   { value: 'pl', label: 'PL' },
   { value: 'en', label: 'EN' },
   { value: 'de', label: 'DE' },
+  { value: 'any', label: 'Any' },
 ]
 
 const formatOptions = [
   { value: 'epub', label: 'EPUB' },
   { value: 'mobi', label: 'MOBI' },
   { value: 'pdf', label: 'PDF' },
+  { value: 'any', label: 'Any' },
 ]
 
 function onSubmit() {
@@ -57,14 +62,14 @@ function onSubmit() {
           :options="languageOptions"
           label="Language"
           class="w-28"
-          @update:model-value="emit('update:language', $event)"
+          @update:model-value="emit('update:language', $event as SearchLanguage)"
         />
         <BaseSelect
           :model-value="props.format"
           :options="formatOptions"
           label="Format"
           class="w-28"
-          @update:model-value="emit('update:format', $event)"
+          @update:model-value="emit('update:format', $event as SearchFormat)"
         />
         <div class="flex items-end">
           <BaseButton
