@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Facet, SortDirection } from '@/stores/search'
 
 interface FacetGroups {
@@ -31,6 +31,30 @@ const emit = defineEmits<{
   clear: []
 }>()
 
+// Below this many authors the list is quicker to scan than to type into.
+const AUTHOR_SEARCH_THRESHOLD = 8
+
+const authorQuery = ref('')
+
+const showAuthorSearch = computed(() => props.facets.authors.length > AUTHOR_SEARCH_THRESHOLD)
+
+/**
+ * Narrows which author checkboxes are listed. Hidden authors stay hidden while filtered
+ * out of view — this only affects what the panel shows, never what the results contain.
+ */
+const shownAuthors = computed(() => {
+  const needle = authorQuery.value.trim().toLowerCase()
+  if (needle === '') return props.facets.authors
+  return props.facets.authors.filter((author) => author.value.toLowerCase().includes(needle))
+})
+
+watch(
+  () => props.facets.authors,
+  () => {
+    authorQuery.value = ''
+  },
+)
+
 const sortOptions = [
   { value: 'none', label: 'Relevance' },
   { value: 'asc', label: 'Year, oldest first' },
@@ -40,11 +64,11 @@ const sortOptions = [
 /** A group with a single value offers no choice, so it only adds noise. */
 const groups = computed(() =>
   [
-    { key: 'authors', label: 'Author', items: props.facets.authors, hidden: props.hiddenAuthors, event: 'toggle-author' },
+    { key: 'authors', label: 'Author', items: shownAuthors.value, hidden: props.hiddenAuthors, event: 'toggle-author' },
     { key: 'publishers', label: 'Publisher', items: props.facets.publishers, hidden: props.hiddenPublishers, event: 'toggle-publisher' },
     { key: 'formats', label: 'Format', items: props.facets.formats, hidden: props.hiddenFormats, event: 'toggle-format' },
     { key: 'languages', label: 'Language', items: props.facets.languages, hidden: props.hiddenLanguages, event: 'toggle-language' },
-  ].filter((group) => group.items.length > 1),
+  ].filter((group) => (group.key === 'authors' ? props.facets.authors.length > 1 : group.items.length > 1)),
 )
 
 const singular = computed(() => props.totalCount === 1)
@@ -94,6 +118,21 @@ function onToggle(event: string, value: string) {
         class="min-w-40"
       >
         <legend class="text-xs uppercase tracking-wide text-zinc-500 mb-1">{{ group.label }}</legend>
+        <input
+          v-if="group.key === 'authors' && showAuthorSearch"
+          v-model="authorQuery"
+          data-testid="author-search"
+          type="search"
+          placeholder="Filter authors"
+          aria-label="Filter authors"
+          class="mb-1 w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 text-sm text-zinc-100 placeholder:text-zinc-500"
+        />
+        <p
+          v-if="group.key === 'authors' && group.items.length === 0"
+          class="text-sm text-zinc-500"
+        >
+          No matching authors
+        </p>
         <ul class="max-h-40 overflow-y-auto pr-2 flex flex-col gap-1">
           <li v-for="item in group.items" :key="item.value">
             <label class="flex items-center gap-2 text-sm text-zinc-300">

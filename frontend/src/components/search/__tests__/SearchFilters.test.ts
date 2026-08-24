@@ -3,6 +3,19 @@ import { mount } from '@vue/test-utils'
 import SearchFilters from '../SearchFilters.vue'
 import type { Facet } from '@/stores/search'
 
+const manyAuthors: Facet[] = [
+  { value: 'Lem', count: 12 },
+  { value: 'Dick', count: 3 },
+  { value: 'Herbert', count: 3 },
+  { value: 'Asimov', count: 2 },
+  { value: 'Clarke', count: 2 },
+  { value: 'Gibson', count: 1 },
+  { value: 'Bradbury', count: 1 },
+  { value: 'Simmons', count: 1 },
+  { value: 'Banks', count: 1 },
+  { value: 'Vance', count: 1 },
+]
+
 const facets = {
   authors: [
     { value: 'Lem', count: 12 },
@@ -85,5 +98,54 @@ describe('SearchFilters', () => {
     })
 
     expect(wrapper.find('[data-testid="facet-group-languages"]').exists()).toBe(false)
+  })
+
+  it('narrows the author list to those matching the typed text', async () => {
+    const wrapper = mountFilters({ facets: { ...facets, authors: manyAuthors } })
+
+    await wrapper.get('[data-testid="author-search"]').setValue('di')
+
+    expect(wrapper.find('[data-testid="facet-author-Dick"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="facet-author-Lem"]').exists()).toBe(false)
+  })
+
+  it('matches authors regardless of letter case', async () => {
+    const wrapper = mountFilters({ facets: { ...facets, authors: manyAuthors } })
+
+    await wrapper.get('[data-testid="author-search"]').setValue('LEM')
+
+    expect(wrapper.find('[data-testid="facet-author-Lem"]').exists()).toBe(true)
+  })
+
+  it('keeps a hidden author hidden even while it is filtered out of the list', async () => {
+    const wrapper = mountFilters({
+      facets: { ...facets, authors: manyAuthors },
+      hiddenAuthors: new Set(['Dick']),
+    })
+
+    await wrapper.get('[data-testid="author-search"]').setValue('lem')
+
+    expect(wrapper.find('[data-testid="facet-author-Dick"]').exists()).toBe(false)
+    expect(wrapper.emitted('toggle-author')).toBeUndefined()
+  })
+
+  it('says so when no author matches the typed text', async () => {
+    const wrapper = mountFilters({ facets: { ...facets, authors: manyAuthors } })
+
+    await wrapper.get('[data-testid="author-search"]').setValue('zzz')
+
+    expect(wrapper.text()).toContain('No matching authors')
+  })
+
+  it('offers no author search when the list is short enough to scan', () => {
+    const wrapper = mountFilters()
+
+    expect(wrapper.find('[data-testid="author-search"]').exists()).toBe(false)
+  })
+
+  it('offers an author search once the list grows long', () => {
+    const wrapper = mountFilters({ facets: { ...facets, authors: manyAuthors } })
+
+    expect(wrapper.find('[data-testid="author-search"]').exists()).toBe(true)
   })
 })
