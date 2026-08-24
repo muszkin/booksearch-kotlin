@@ -75,6 +75,8 @@ Mailpit UI (dev): `http://localhost:8025`
 | `FLARESOLVERR_SESSION_TTL_MINUTES` | `1440` | Rotate the persistent browser session after this many minutes |
 | `TORRENT_FALLBACK_ENABLED` | `true` | Use public torrents when DDoS-Guard blocks slow-download pages |
 | `TORRENT_STALL_TIMEOUT_SECONDS` | `180` | Stop a torrent fallback after this many seconds without transfer |
+| `OPENROUTER_API_KEY` | unset | Optional. When set, books with no publisher blurb get a generated description through OpenRouter; leave empty to disable the feature entirely |
+| `OPENROUTER_MODEL` | `openrouter/auto` | Model used for generated descriptions; the default lets OpenRouter pick |
 | `SEARCH_JOB_RETENTION_DAYS` | `1` | Delete search jobs and their cached results after this many days |
 | `DOWNLOAD_JOB_RETENTION_DAYS` | `30` | Delete finished download jobs after this many days (active jobs are never removed) |
 | `SMTP_HOST` | `mailpit` | SMTP server host (used for system emails) |

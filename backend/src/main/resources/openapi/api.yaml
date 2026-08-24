@@ -290,6 +290,37 @@ paths:
         '404':
           description: Search job not found
 
+  /api/books/{md5}/description:
+    get:
+      operationId: getBookDescription
+      tags: [search]
+      summary: Resolve a book description
+      description: >
+        Returns the publisher blurb Anna's Archive holds for the book. When it has none,
+        and an OpenRouter key is configured, a generated description is returned instead;
+        the source field says which of the two the text is, so the interface can label
+        generated text as such. Answers 404 when neither source has anything.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: md5
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Book MD5 hash
+      responses:
+        '200':
+          description: Description found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDescriptionResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: No description available
+
   /api/library:
     get:
       operationId: getUserLibrary
@@ -1141,6 +1172,20 @@ components:
           type: integer
         query:
           type: string
+
+    BookDescriptionResponse:
+      type: object
+      required: [description, source]
+      properties:
+        description:
+          type: string
+        source:
+          type: string
+          enum: [annas-archive, openrouter]
+          description: Where the text came from; "openrouter" means it was generated
+        isbn:
+          type: string
+          nullable: true
 
     SearchStartedResponse:
       type: object

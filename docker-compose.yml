@@ -25,6 +25,8 @@ services:
     environment:
       MIRROR_DOMAINS: annas-archive.gd,annas-archive.pk,annas-archive.gl
       ANNA_ARCHIVE_API_KEY: ${ANNA_ARCHIVE_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
       FLARESOLVERR_PROXY_URL: ${FLARESOLVERR_PROXY_URL:-socks5://tor:9050}
     volumes:
       - booksearch-data:/app/data

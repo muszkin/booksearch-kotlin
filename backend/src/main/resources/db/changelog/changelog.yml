@@ -27,3 +27,5 @@ databaseChangeLog:
       file: db/changelog/migrations/013-create-download-sources-table.sql
   - include:
       file: db/changelog/migrations/014-create-search-jobs-table.sql
+  - include:
+      file: db/changelog/migrations/015-add-book-description-metadata.sql

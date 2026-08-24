@@ -36,3 +36,7 @@ mirror:
 retention:
   searchJobDays: "$SEARCH_JOB_RETENTION_DAYS:1"
   downloadJobDays: "$DOWNLOAD_JOB_RETENTION_DAYS:30"
+
+openrouter:
+  apiKey: "$OPENROUTER_API_KEY:"
+  model: "$OPENROUTER_MODEL:openrouter/auto"

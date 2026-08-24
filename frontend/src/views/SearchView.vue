@@ -14,7 +14,7 @@ import { useSearchStore } from '@/stores/search'
 import { useSelectionStore } from '@/stores/selection'
 import { useSettingsStore } from '@/stores/settings'
 import { useDownloadQueueStore } from '@/stores/download-queue'
-import { DownloadService } from '@/api/generated'
+import { DownloadService, SearchService } from '@/api/generated'
 
 const searchStore = useSearchStore()
 const selectionStore = useSelectionStore()
@@ -23,6 +23,40 @@ const queueStore = useDownloadQueueStore()
 
 const drawerOpen = ref(false)
 const downloadLoading = reactive(new Map<string, boolean>())
+
+interface DescriptionState {
+  open: boolean
+  loading: boolean
+  missing: boolean
+  text?: string
+  source?: string
+  isbn?: string
+}
+
+const descriptions = reactive(new Map<string, DescriptionState>())
+
+async function handleToggleDescription(md5: string) {
+  const existing = descriptions.get(md5)
+  if (existing) {
+    existing.open = !existing.open
+    return
+  }
+
+  const state: DescriptionState = { open: true, loading: true, missing: false }
+  descriptions.set(md5, state)
+
+  try {
+    const result = await SearchService.getBookDescription(md5)
+    state.text = result.description
+    state.source = result.source
+    state.isbn = result.isbn ?? undefined
+  } catch {
+    // A missing description is an ordinary outcome, not an error worth shouting about.
+    state.missing = true
+  } finally {
+    state.loading = false
+  }
+}
 const downloadErrors = reactive(new Map<string, string>())
 
 const kindleEnabled = computed(() => settingsStore.isConfigured('kindle'))
@@ -214,6 +248,13 @@ function handleDrawerClose() {
             :delivery-loading="downloadLoading.get(book.md5) ?? false"
             :kindle-enabled="kindleEnabled"
             :pocketbook-enabled="pocketbookEnabled"
+            :description-open="descriptions.get(book.md5)?.open ?? false"
+            :description-loading="descriptions.get(book.md5)?.loading ?? false"
+            :description-missing="descriptions.get(book.md5)?.missing ?? false"
+            :description="descriptions.get(book.md5)?.text"
+            :description-source="descriptions.get(book.md5)?.source"
+            :isbn="descriptions.get(book.md5)?.isbn"
+            @toggle-description="handleToggleDescription(book.md5)"
             @toggle-select="handleToggleSelect(book)"
             @download="handleDownload(book.md5)"
             @deliver="handleDeliver(book.md5, $event)"

@@ -11,6 +11,7 @@ export type { ActivityLogItem } from './models/ActivityLogItem';
 export type { ActivityLogListResponse } from './models/ActivityLogListResponse';
 export type { AddToLibraryRequest } from './models/AddToLibraryRequest';
 export type { BatchDownloadRequest } from './models/BatchDownloadRequest';
+export { BookDescriptionResponse } from './models/BookDescriptionResponse';
 export { BookResult } from './models/BookResult';
 export type { CancelJobResponse } from './models/CancelJobResponse';
 export type { ChangeOwnPasswordRequest } from './models/ChangeOwnPasswordRequest';

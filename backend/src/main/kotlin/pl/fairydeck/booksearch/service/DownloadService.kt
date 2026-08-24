@@ -40,7 +40,8 @@ class DownloadService(
     private val metadataService: MetadataService? = null,
     private val fastDownloadClient: AnnaArchiveFastDownloadClient? = null,
     private val torrentFallbackClient: TorrentFallbackClient? = null,
-    private val downloadSourceRepository: DownloadSourceRepository? = null
+    private val downloadSourceRepository: DownloadSourceRepository? = null,
+    private val bookDescriptionService: BookDescriptionService? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(DownloadService::class.java)
@@ -55,6 +56,7 @@ class DownloadService(
 
         val format = book.format ?: "epub"
         userLibraryRepository.findOrCreate(userId, bookMd5, format)
+        bookDescriptionService?.enrichInBackground(bookMd5)
         val activeJob = downloadJobRepository.findActiveByUserAndBook(userId, bookMd5, format)
         if (activeJob != null) {
             scheduleJob(activeJob.id!!, userId, bookMd5, format)

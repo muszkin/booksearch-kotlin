@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import org.jooq.DSLContext
 import org.slf4j.MDC
 import pl.fairydeck.booksearch.api.AuthenticationException
+import pl.fairydeck.booksearch.api.bookRoutes
 import pl.fairydeck.booksearch.api.AuthorizationException
 import pl.fairydeck.booksearch.api.ConflictException
 import pl.fairydeck.booksearch.api.NotFoundException
@@ -44,7 +45,10 @@ import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveRecordClient
 import pl.fairydeck.booksearch.infrastructure.AnnaArchiveSessionClient
+import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
+import pl.fairydeck.booksearch.infrastructure.OpenRouterConfig
 import pl.fairydeck.booksearch.infrastructure.RetentionConfig
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
@@ -69,6 +73,7 @@ import pl.fairydeck.booksearch.service.DeliveryService
 import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
 import pl.fairydeck.booksearch.service.MetadataService
+import pl.fairydeck.booksearch.service.BookDescriptionService
 import pl.fairydeck.booksearch.service.JobRetentionService
 import pl.fairydeck.booksearch.service.MirrorService
 import pl.fairydeck.booksearch.service.ScraperService
@@ -145,6 +150,12 @@ fun Application.module() {
     val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
     val fastDownloadClient = AnnaArchiveFastDownloadClient(scraperConfig)
     val torrentFallbackClient = TorrentFallbackClient(scraperConfig, impersonatorHttpClient)
+    val bookDescriptionService = BookDescriptionService(
+        bookRepository,
+        AnnaArchiveRecordClient(annaArchiveSessionClient),
+        OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)),
+        mirrorService
+    )
     val downloadService = DownloadService(
         downloadJobRepository = downloadJobRepository,
         bookRepository = bookRepository,
@@ -156,7 +167,8 @@ fun Application.module() {
         metadataService = metadataService,
         fastDownloadClient = fastDownloadClient,
         torrentFallbackClient = torrentFallbackClient,
-        downloadSourceRepository = downloadSourceRepository
+        downloadSourceRepository = downloadSourceRepository,
+        bookDescriptionService = bookDescriptionService
     )
     val jobRetentionService = JobRetentionService(
         searchJobRepository,
@@ -178,7 +190,7 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository)
+    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, bookDescriptionService)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -353,7 +365,8 @@ private fun Application.configureRouting(
     activityLogService: ActivityLogService,
     downloadJobRepository: DownloadJobRepository,
     activityLogRepository: ActivityLogRepository,
-    requestLogRepository: RequestLogRepository
+    requestLogRepository: RequestLogRepository,
+    bookDescriptionService: BookDescriptionService
 ) {
     routing {
         healthRoutes()
@@ -361,6 +374,7 @@ private fun Application.configureRouting(
         adminRoutes(authService)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
+        bookRoutes(bookDescriptionService)
         libraryRoutes(libraryService, downloadService, activityLogService)
         downloadRoutes(downloadService, downloadJobRepository, activityLogService)
         convertRoutes(conversionService, activityLogService)

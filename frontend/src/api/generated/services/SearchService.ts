@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { BookDescriptionResponse } from '../models/BookDescriptionResponse';
 import type { SearchJobStatusResponse } from '../models/SearchJobStatusResponse';
 import type { SearchStartedResponse } from '../models/SearchStartedResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -58,6 +59,29 @@ export class SearchService {
             errors: {
                 401: `Not authenticated`,
                 404: `Search job not found`,
+            },
+        });
+    }
+    /**
+     * Resolve a book description
+     * Returns the publisher blurb Anna's Archive holds for the book. When it has none, and an OpenRouter key is configured, a generated description is returned instead; the source field says which of the two the text is, so the interface can label generated text as such. Answers 404 when neither source has anything.
+     *
+     * @param md5 Book MD5 hash
+     * @returns BookDescriptionResponse Description found
+     * @throws ApiError
+     */
+    public static getBookDescription(
+        md5: string,
+    ): CancelablePromise<BookDescriptionResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/books/{md5}/description',
+            path: {
+                'md5': md5,
+            },
+            errors: {
+                401: `Not authenticated`,
+                404: `No description available`,
             },
         });
     }
