@@ -42,8 +42,11 @@ async function handleToggleDescription(md5: string) {
     return
   }
 
-  const state: DescriptionState = { open: true, loading: true, missing: false }
-  descriptions.set(md5, state)
+  descriptions.set(md5, { open: true, loading: true, missing: false })
+  // Read the entry back: the map hands out a reactive proxy, and only writes
+  // through that proxy re-render. Mutating the object we just passed in would
+  // update the data but leave the card showing its loading state.
+  const state = descriptions.get(md5)!
 
   try {
     const result = await SearchService.getBookDescription(md5)
