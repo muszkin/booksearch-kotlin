@@ -32,3 +32,7 @@ scraper:
 mirror:
   domains: "$MIRROR_DOMAINS:annas-archive.gd,annas-archive.pk,annas-archive.gl"
   refreshIntervalHours: 24
+
+retention:
+  searchJobDays: "$SEARCH_JOB_RETENTION_DAYS:1"
+  downloadJobDays: "$DOWNLOAD_JOB_RETENTION_DAYS:30"

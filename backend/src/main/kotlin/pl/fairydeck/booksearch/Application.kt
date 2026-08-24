@@ -44,6 +44,7 @@ import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
+import pl.fairydeck.booksearch.infrastructure.RetentionConfig
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 import pl.fairydeck.booksearch.repository.ActivityLogRepository
@@ -67,6 +68,7 @@ import pl.fairydeck.booksearch.service.DeliveryService
 import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
 import pl.fairydeck.booksearch.service.MetadataService
+import pl.fairydeck.booksearch.service.JobRetentionService
 import pl.fairydeck.booksearch.service.MirrorService
 import pl.fairydeck.booksearch.service.ScraperService
 import pl.fairydeck.booksearch.service.SearchService
@@ -154,6 +156,11 @@ fun Application.module() {
         torrentFallbackClient = torrentFallbackClient,
         downloadSourceRepository = downloadSourceRepository
     )
+    val jobRetentionService = JobRetentionService(
+        searchJobRepository,
+        downloadJobRepository,
+        RetentionConfig.fromEnvironment(environment)
+    )
     val calibreWrapper = CalibreWrapper()
     val conversionService = ConversionService(
         userLibraryRepository = userLibraryRepository,
@@ -173,16 +180,27 @@ fun Application.module() {
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
+        jobRetentionService.failInterruptedSearchJobs()
+        runRetentionSweep(jobRetentionService)
         mirrorService.refreshMirrors()
         downloadService.resumePendingJobs()
         while (true) {
             delay(mirrorRefreshIntervalMs)
+            runRetentionSweep(jobRetentionService)
             try {
                 mirrorService.refreshMirrors()
             } catch (e: Exception) {
                 log.error("Mirror refresh failed", e)
             }
         }
+    }
+}
+
+private fun Application.runRetentionSweep(jobRetentionService: JobRetentionService) {
+    try {
+        jobRetentionService.sweep()
+    } catch (e: Exception) {
+        log.error("Job retention sweep failed", e)
     }
 }
 

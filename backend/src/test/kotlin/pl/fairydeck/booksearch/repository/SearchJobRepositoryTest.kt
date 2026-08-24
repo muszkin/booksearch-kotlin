@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
+import pl.fairydeck.booksearch.jooq.generated.tables.references.SEARCH_JOBS
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 class SearchJobRepositoryTest {
 
@@ -71,5 +74,41 @@ class SearchJobRepositoryTest {
         val jobId = searchJobRepository.create(userId, "lem", "pl", "epub", maxPages = 3)
 
         assertNull(searchJobRepository.findByIdAndUserId(jobId, otherUserId))
+    }
+
+    @Test
+    fun sweepDeletesJobsOlderThanTheCutoff() {
+        val staleId = searchJobRepository.create(userId, "stale", "pl", "epub", maxPages = 3)
+        val freshId = searchJobRepository.create(userId, "fresh", "pl", "epub", maxPages = 3)
+        backdate(staleId, days = 3)
+
+        val deleted = searchJobRepository.deleteOlderThan(Instant.now().minus(1, ChronoUnit.DAYS))
+
+        assertEquals(1, deleted)
+        assertNull(searchJobRepository.findByIdAndUserId(staleId, userId))
+        assertNotNull(searchJobRepository.findByIdAndUserId(freshId, userId))
+    }
+
+    @Test
+    fun nonTerminalJobsAreFailedSoPollingStops() {
+        val queuedId = searchJobRepository.create(userId, "queued", "pl", "epub", maxPages = 3)
+        val scrapingId = searchJobRepository.create(userId, "scraping", "pl", "epub", maxPages = 3)
+        searchJobRepository.markScraping(scrapingId)
+        val completedId = searchJobRepository.create(userId, "done", "pl", "epub", maxPages = 3)
+        searchJobRepository.markCompleted(completedId, "[]", totalResults = 0)
+
+        val failed = searchJobRepository.failNonTerminal("Interrupted by a restart")
+
+        assertEquals(2, failed)
+        assertEquals("failed", searchJobRepository.findByIdAndUserId(queuedId, userId)!!.status)
+        assertEquals("failed", searchJobRepository.findByIdAndUserId(scrapingId, userId)!!.status)
+        assertEquals("completed", searchJobRepository.findByIdAndUserId(completedId, userId)!!.status)
+    }
+
+    private fun backdate(jobId: Int, days: Long) {
+        dsl.update(SEARCH_JOBS)
+            .set(SEARCH_JOBS.CREATED_AT, Instant.now().minus(days, ChronoUnit.DAYS).toString())
+            .where(SEARCH_JOBS.ID.eq(jobId))
+            .execute()
     }
 }

@@ -47,6 +47,19 @@ class SearchJobRepository(private val dsl: DSLContext) {
             .execute()
     }
 
+    fun deleteOlderThan(cutoff: Instant): Int =
+        dsl.deleteFrom(SEARCH_JOBS)
+            .where(SEARCH_JOBS.CREATED_AT.lt(cutoff.toString()))
+            .execute()
+
+    fun failNonTerminal(reason: String): Int =
+        dsl.update(SEARCH_JOBS)
+            .set(SEARCH_JOBS.STATUS, "failed")
+            .set(SEARCH_JOBS.ERROR, reason)
+            .set(SEARCH_JOBS.UPDATED_AT, Instant.now().toString())
+            .where(SEARCH_JOBS.STATUS.`in`(NON_TERMINAL_STATUSES))
+            .execute()
+
     fun markFailed(jobId: Int, error: String) {
         dsl.update(SEARCH_JOBS)
             .set(SEARCH_JOBS.STATUS, "failed")
@@ -54,5 +67,9 @@ class SearchJobRepository(private val dsl: DSLContext) {
             .set(SEARCH_JOBS.UPDATED_AT, Instant.now().toString())
             .where(SEARCH_JOBS.ID.eq(jobId))
             .execute()
+    }
+
+    companion object {
+        val NON_TERMINAL_STATUSES = listOf("queued", "scraping")
     }
 }

@@ -110,6 +110,12 @@ class DownloadJobRepository(private val dsl: DSLContext) {
             .and(DOWNLOAD_JOBS.STATUS.`in`(ACTIVE_STATUSES))
             .execute()
 
+    fun deleteTerminalOlderThan(cutoff: Instant): Int =
+        dsl.deleteFrom(DOWNLOAD_JOBS)
+            .where(DOWNLOAD_JOBS.CREATED_AT.lt(cutoff.toString()))
+            .and(DOWNLOAD_JOBS.STATUS.notIn(ACTIVE_STATUSES))
+            .execute()
+
     companion object {
         val ACTIVE_STATUSES = listOf(
             "queued",
