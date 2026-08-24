@@ -167,6 +167,10 @@ function handleDrawerClose() {
     @toggle-publisher="searchStore.hidePublisher"
     @toggle-format="searchStore.hideFormat"
     @toggle-language="searchStore.hideLanguage"
+    @set-authors="searchStore.setAuthorsHidden($event.values, $event.hidden)"
+    @set-publishers="searchStore.setPublishersHidden($event.values, $event.hidden)"
+    @set-formats="searchStore.setFormatsHidden($event.values, $event.hidden)"
+    @set-languages="searchStore.setLanguagesHidden($event.values, $event.hidden)"
     @update:sort-direction="searchStore.sortDirection = $event"
     @clear="searchStore.clearHidden"
   />

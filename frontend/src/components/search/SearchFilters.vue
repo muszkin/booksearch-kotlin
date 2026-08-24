@@ -10,6 +10,11 @@ interface FacetGroups {
   languages: Facet[]
 }
 
+interface BulkChange {
+  values: string[]
+  hidden: boolean
+}
+
 interface Props {
   facets: FacetGroups
   hiddenAuthors: Set<string>
@@ -28,6 +33,10 @@ const emit = defineEmits<{
   'toggle-publisher': [value: string]
   'toggle-format': [value: string]
   'toggle-language': [value: string]
+  'set-authors': [payload: BulkChange]
+  'set-publishers': [payload: BulkChange]
+  'set-formats': [payload: BulkChange]
+  'set-languages': [payload: BulkChange]
   'update:sortDirection': [value: SortDirection]
   clear: []
 }>()
@@ -61,8 +70,21 @@ const toggleEvents = {
   language: 'toggle-language',
 } as const
 
-function onToggle(key: keyof typeof toggleEvents, value: string) {
+const bulkEvents = {
+  author: 'set-authors',
+  publisher: 'set-publishers',
+  format: 'set-formats',
+  language: 'set-languages',
+} as const
+
+type GroupKey = keyof typeof toggleEvents
+
+function onToggle(key: GroupKey, value: string) {
   emit(toggleEvents[key] as 'toggle-author', value)
+}
+
+function onSetMany(key: GroupKey, payload: BulkChange) {
+  emit(bulkEvents[key] as 'set-authors', payload)
 }
 </script>
 
@@ -90,7 +112,8 @@ function onToggle(key: keyof typeof toggleEvents, value: string) {
         :items="group.items"
         :hidden="group.hidden"
         :searchable="group.searchable"
-        @toggle="onToggle(group.key as keyof typeof toggleEvents, $event)"
+        @toggle="onToggle(group.key as GroupKey, $event)"
+        @set-many="onSetMany(group.key as GroupKey, $event)"
       />
 
       <p class="ml-auto text-sm text-zinc-400" aria-live="polite">

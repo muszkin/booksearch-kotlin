@@ -11,7 +11,10 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), { searchable: false })
 
-const emit = defineEmits<{ toggle: [value: string] }>()
+const emit = defineEmits<{
+  toggle: [value: string]
+  'set-many': [payload: { values: string[]; hidden: boolean }]
+}>()
 
 const open = ref(false)
 const query = ref('')
@@ -31,6 +34,11 @@ watch(
     query.value = ''
   },
 )
+
+/** Bulk actions act on what the search left listed, so a query can target a subset. */
+function setAllListed(hidden: boolean) {
+  emit('set-many', { values: shownItems.value.map((item) => item.value), hidden })
+}
 
 function toggleOpen() {
   open.value = !open.value
@@ -84,7 +92,29 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocumentPoin
 
       <p v-if="shownItems.length === 0" class="text-sm text-zinc-500 px-1 py-2">No matches</p>
 
-      <ul v-else class="max-h-64 overflow-y-auto flex flex-col gap-1">
+      <div v-else class="flex items-center gap-2 mb-2 pb-2 border-b border-zinc-700">
+        <button
+          type="button"
+          data-testid="facet-select-all"
+          class="text-xs text-zinc-300 underline hover:text-zinc-100"
+          @click="setAllListed(false)"
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          data-testid="facet-deselect-all"
+          class="text-xs text-zinc-300 underline hover:text-zinc-100"
+          @click="setAllListed(true)"
+        >
+          Deselect all
+        </button>
+        <span v-if="query.trim() !== ''" class="ml-auto text-xs text-zinc-500">
+          {{ shownItems.length }} shown
+        </span>
+      </div>
+
+      <ul v-if="shownItems.length > 0" class="max-h-64 overflow-y-auto flex flex-col gap-1">
         <li v-for="item in shownItems" :key="item.value">
           <label class="flex items-center gap-2 text-sm text-zinc-300 px-1 py-0.5 hover:bg-zinc-700 rounded">
             <input

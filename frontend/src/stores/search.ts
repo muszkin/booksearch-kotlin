@@ -17,6 +17,8 @@ const UNKNOWN_VALUE = 'Unknown'
 const AUTHOR_SEPARATOR = /\s*;\s*/
 /** Publisher strings carry the edition year: "AMBER, Wydawnictwo, 2011". */
 const TRAILING_YEAR = /,\s*(1[0-9]|20)\d{2}\s*$/
+/** Explicit collation: the default locale can sort Polish diacritics after Z. */
+const COLLATOR = new Intl.Collator('pl', { sensitivity: 'base', numeric: true })
 const POLL_INTERVAL_MS = 1500
 const POLL_TIMEOUT_MS = 5 * 60 * 1000
 const TIMEOUT_MESSAGE = 'Search timed out. Try a narrower query.'
@@ -129,7 +131,7 @@ export const useSearchStore = defineStore('search', () => {
     }
     return [...counts.entries()]
       .map(([value, count]) => ({ value, count }))
-      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+      .sort((a, b) => COLLATOR.compare(a.value, b.value))
   }
 
   function authorsOf(book: BookResult): string[] {
@@ -193,6 +195,34 @@ export const useSearchStore = defineStore('search', () => {
     hiddenLanguages.value = new Set(hiddenLanguages.value)
   }
 
+  function setManyHidden(current: Set<string>, values: string[], hidden: boolean): Set<string> {
+    const next = new Set(current)
+    for (const value of values) {
+      if (hidden) {
+        next.add(value)
+      } else {
+        next.delete(value)
+      }
+    }
+    return next
+  }
+
+  function setAuthorsHidden(values: string[], hidden: boolean) {
+    hiddenAuthors.value = setManyHidden(hiddenAuthors.value, values, hidden)
+  }
+
+  function setPublishersHidden(values: string[], hidden: boolean) {
+    hiddenPublishers.value = setManyHidden(hiddenPublishers.value, values, hidden)
+  }
+
+  function setFormatsHidden(values: string[], hidden: boolean) {
+    hiddenFormats.value = setManyHidden(hiddenFormats.value, values, hidden)
+  }
+
+  function setLanguagesHidden(values: string[], hidden: boolean) {
+    hiddenLanguages.value = setManyHidden(hiddenLanguages.value, values, hidden)
+  }
+
   /** A new query returns a different set of authors, so stale hides would bury random results. */
   function clearHidden() {
     hiddenAuthors.value = new Set()
@@ -232,6 +262,10 @@ export const useSearchStore = defineStore('search', () => {
     hidePublisher,
     hideFormat,
     hideLanguage,
+    setAuthorsHidden,
+    setPublishersHidden,
+    setFormatsHidden,
+    setLanguagesHidden,
     clearHidden,
   }
 })

@@ -94,4 +94,43 @@ describe('FacetSelect', () => {
 
     expect(wrapper.get('[data-testid="facet-list"]').text()).toContain('No matches')
   })
+
+  it('selects every listed value at once', async () => {
+    const wrapper = mountSelect({ hidden: new Set(['Lem', 'Dick']) })
+    await wrapper.get('[data-testid="facet-trigger"]').trigger('click')
+
+    await wrapper.get('[data-testid="facet-select-all"]').trigger('click')
+
+    expect(wrapper.emitted('set-many')).toEqual([[{ values: ['Lem', 'Dick', 'Herbert'], hidden: false }]])
+  })
+
+  it('deselects every listed value at once', async () => {
+    const wrapper = mountSelect()
+    await wrapper.get('[data-testid="facet-trigger"]').trigger('click')
+
+    await wrapper.get('[data-testid="facet-deselect-all"]').trigger('click')
+
+    expect(wrapper.emitted('set-many')).toEqual([[{ values: ['Lem', 'Dick', 'Herbert'], hidden: true }]])
+  })
+
+  it('applies bulk actions only to what the search left listed', async () => {
+    const wrapper = mountSelect()
+    await wrapper.get('[data-testid="facet-trigger"]').trigger('click')
+    await wrapper.get('[data-testid="facet-search"]').setValue('e')
+
+    await wrapper.get('[data-testid="facet-deselect-all"]').trigger('click')
+
+    const emitted = wrapper.emitted('set-many')![0][0] as { values: string[]; hidden: boolean }
+    expect(emitted.values).toEqual(['Lem', 'Herbert'])
+    expect(emitted.hidden).toBe(true)
+  })
+
+  it('offers no bulk actions when the search matched nothing', async () => {
+    const wrapper = mountSelect()
+    await wrapper.get('[data-testid="facet-trigger"]').trigger('click')
+
+    await wrapper.get('[data-testid="facet-search"]').setValue('zzz')
+
+    expect(wrapper.find('[data-testid="facet-select-all"]').exists()).toBe(false)
+  })
 })

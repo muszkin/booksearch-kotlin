@@ -102,4 +102,24 @@ describe('SearchFilters', () => {
 
     expect(wrapper.get('[data-testid="filter-bar"]').classes()).toContain('flex')
   })
+
+  it('forwards a bulk change for the group it came from', async () => {
+    const wrapper = mountFilters()
+
+    await wrapper
+      .findAllComponents(FacetSelect)[1]
+      .vm.$emit('set-many', { values: ['WL', 'Mag'], hidden: true })
+
+    expect(wrapper.emitted('set-publishers')).toEqual([[{ values: ['WL', 'Mag'], hidden: true }]])
+  })
+
+  it('forwards a bulk restore for authors', async () => {
+    const wrapper = mountFilters()
+
+    await wrapper
+      .findAllComponents(FacetSelect)[0]
+      .vm.$emit('set-many', { values: ['Lem'], hidden: false })
+
+    expect(wrapper.emitted('set-authors')).toEqual([[{ values: ['Lem'], hidden: false }]])
+  })
 })

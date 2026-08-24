@@ -68,8 +68,8 @@ describe('search facets', () => {
     ])
 
     expect(store.facets.authors).toEqual([
-      { value: 'Lem', count: 2 },
       { value: 'Dick', count: 1 },
+      { value: 'Lem', count: 2 },
     ])
   })
 
@@ -264,5 +264,82 @@ describe('facet value normalisation', () => {
     const store = await storeWith([book({ publisher: 'Wydawnictwo Literackie' })])
 
     expect(store.facets.publishers).toEqual([{ value: 'Wydawnictwo Literackie', count: 1 }])
+  })
+})
+
+describe('facet ordering', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('orders facet values alphabetically rather than by count', async () => {
+    const store = await storeWith([
+      book({ author: 'Zelazny' }),
+      book({ author: 'Zelazny' }),
+      book({ author: 'Asimov' }),
+    ])
+
+    expect(store.facets.authors.map((a) => a.value)).toEqual(['Asimov', 'Zelazny'])
+  })
+
+  it('collates Polish letters in their alphabetical place', async () => {
+    const store = await storeWith([
+      book({ author: 'Zabinski' }),
+      book({ author: 'Łuczak' }),
+      book({ author: 'Adamski' }),
+    ])
+
+    expect(store.facets.authors.map((a) => a.value)).toEqual(['Adamski', 'Łuczak', 'Zabinski'])
+  })
+})
+
+describe('bulk hiding', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+  })
+
+  it('hides every named author at once', async () => {
+    const store = await storeWith([
+      book({ author: 'Lem' }),
+      book({ author: 'Dick' }),
+      book({ author: 'Herbert' }),
+    ])
+
+    store.setAuthorsHidden(['Lem', 'Dick'], true)
+
+    expect(store.visibleResults.map((b) => b.author)).toEqual(['Herbert'])
+  })
+
+  it('restores every named author at once', async () => {
+    const store = await storeWith([book({ author: 'Lem' }), book({ author: 'Dick' })])
+    store.setAuthorsHidden(['Lem', 'Dick'], true)
+
+    store.setAuthorsHidden(['Lem', 'Dick'], false)
+
+    expect(store.visibleResults).toHaveLength(2)
+  })
+
+  it('leaves authors outside the named set untouched', async () => {
+    const store = await storeWith([book({ author: 'Lem' }), book({ author: 'Dick' })])
+    store.setAuthorsHidden(['Lem'], true)
+
+    store.setAuthorsHidden(['Dick'], true)
+
+    expect(store.hiddenAuthors.has('Lem')).toBe(true)
+  })
+
+  it('hides publishers, formats and languages in bulk too', async () => {
+    const store = await storeWith([
+      book({ publisher: 'WL', format: 'epub', language: 'Polish [pl]' }),
+      book({ publisher: 'Mag', format: 'pdf', language: 'English [en]' }),
+    ])
+
+    store.setPublishersHidden(['Mag'], true)
+    store.setFormatsHidden(['pdf'], true)
+    store.setLanguagesHidden(['English [en]'], true)
+
+    expect(store.visibleResults.map((b) => b.publisher)).toEqual(['WL'])
   })
 })
