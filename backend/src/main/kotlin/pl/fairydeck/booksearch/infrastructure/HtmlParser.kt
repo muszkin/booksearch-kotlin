@@ -18,6 +18,14 @@ object HtmlParser {
     private const val DOWNLOAD_LINK_SELECTOR = "p.text-xl.font-bold a[href^=http]"
     private const val MD5_PREFIX_LENGTH = 12
     private val MD5_PATTERN = Regex("/md5/([a-f0-9]{32})")
+    /** Verified entries prefix the language with a check mark. */
+    private val LANGUAGE_DECORATION_PATTERN = Regex("""^[^\p{L}]+""")
+    private val LANGUAGE_PATTERN = Regex(""".+\[[a-z]{2,3}(-[A-Za-z]+)?\]""")
+    private val FILE_SIZE_PATTERN = Regex("""\d+(\.\d+)?\s?(B|KB|MB|GB)""", RegexOption.IGNORE_CASE)
+    private val YEAR_PATTERN = Regex("""(1[0-9]|20)\d{2}""")
+    private val KNOWN_FORMATS = setOf(
+        "epub", "pdf", "mobi", "azw3", "fb2", "fb2.zip", "djvu", "cbz", "cbr", "txt", "rtf", "doc", "docx"
+    )
     private val WAIT_SECONDS_PATTERN = Regex("""waitSeconds\s*=\s*(\d+)""")
     private val TORRENT_FILE_PATTERN = Regex("""file\s+[“"]([^”"]+)[”"]""")
     private val TORRENT_EXTRACT_FILE_PATTERN = Regex("""\(extract\).*?file\s+[“"]([^”"]+)[”"]""")
@@ -89,16 +97,31 @@ object HtmlParser {
 
     private fun parseFormatInfo(entry: Element): FormatInfo {
         val infoDiv = entry.selectFirst(FORMAT_INFO_SELECTOR) ?: return FormatInfo()
-        val parts = infoDiv.text().split("·").map { it.trim() }
+        val parts = infoDiv.text().split("·").map { it.trim() }.filter { it.isNotEmpty() }
 
-        // Actual format: "Polish [pl] · EPUB · 0.5MB · 2000 · Book (fiction) · /lgli/lgrs"
-        // Order: language · format · fileSize · year · type · source
+        // The line is positional only by convention and its shape drifts: a leading
+        // metadata language was added ahead of the book language, and the year is
+        // omitted for entries that have none. Match on token content instead.
+        // Current: "English [en] · Polish [pl] · EPUB · 0.2MB · 1987 · Book (fiction) · /upload"
+        // Legacy:  "German [de] · PDF · 3.5MB · 2000 · Book (fiction) · /lgli/lgrs"
+        val formatIndex = parts.indexOfFirst { it.lowercase() in KNOWN_FORMATS }
+
         return FormatInfo(
-            language = parts.getOrElse(0) { "" },
-            format = parts.getOrElse(1) { "" }.lowercase(),
-            fileSize = parts.getOrElse(2) { "" },
-            year = parts.getOrElse(3) { "" }
+            language = languageBefore(parts, formatIndex),
+            format = parts.getOrNull(formatIndex)?.lowercase() ?: "",
+            fileSize = parts.firstOrNull(FILE_SIZE_PATTERN::matches) ?: "",
+            year = parts.firstOrNull(YEAR_PATTERN::matches) ?: ""
         )
+    }
+
+    /**
+     * The book language is the last bracketed language token ahead of the format,
+     * so an extra leading language field does not displace it.
+     */
+    private fun languageBefore(parts: List<String>, formatIndex: Int): String {
+        val candidates = if (formatIndex > 0) parts.subList(0, formatIndex) else parts
+        val language = candidates.lastOrNull(LANGUAGE_PATTERN::matches) ?: return ""
+        return language.replace(LANGUAGE_DECORATION_PATTERN, "").trim()
     }
 
     fun parseDetailPageDownloadLinks(html: String): List<DownloadLink> {

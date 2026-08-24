@@ -44,6 +44,7 @@ import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveSessionClient
 import pl.fairydeck.booksearch.infrastructure.RetentionConfig
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
@@ -130,7 +131,8 @@ fun Application.module() {
     val mirrorRepository = MirrorRepository(dsl)
     val solvearrClient = SolvearrClient(scraperConfig)
     val mirrorService = MirrorService(mirrorRepository, solvearrClient, mirrorConfig)
-    val scraperService = ScraperService(solvearrClient, mirrorService)
+    val annaArchiveSessionClient = AnnaArchiveSessionClient(scraperConfig)
+    val scraperService = ScraperService(solvearrClient, mirrorService, annaArchiveSessionClient)
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
     val userSettingsRepository = UserSettingsRepository(dsl)

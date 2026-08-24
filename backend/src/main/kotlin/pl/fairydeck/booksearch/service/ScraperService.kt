@@ -1,6 +1,7 @@
 package pl.fairydeck.booksearch.service
 
 import org.slf4j.LoggerFactory
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveSessionClient
 import pl.fairydeck.booksearch.infrastructure.HtmlParser
 import pl.fairydeck.booksearch.infrastructure.ParsedBookEntry
 import pl.fairydeck.booksearch.infrastructure.ScraperException
@@ -9,6 +10,7 @@ import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 class ScraperService(
     private val solvearrClient: SolvearrClient,
     private val mirrorService: MirrorService,
+    private val sessionClient: AnnaArchiveSessionClient? = null,
     private val scrapeBudgetMillis: Long = DEFAULT_SCRAPE_BUDGET_MILLIS
 ) {
 
@@ -50,7 +52,20 @@ class ScraperService(
         return allResults
     }
 
+    /**
+     * DDoS-Guard serves `/search` directly to a signed-in member, so the authenticated
+     * plain-HTTP path costs seconds where the headless browser costs up to 90 seconds
+     * per page and currently fails the challenge outright. The browser stays as a
+     * fallback for deployments without a member key.
+     */
     private suspend fun fetchPage(url: String): String {
+        if (sessionClient?.isConfigured == true) {
+            try {
+                return sessionClient.fetchPage(url)
+            } catch (e: Exception) {
+                logger.warn("Member session fetch failed for page, falling back to browser: {}", e.message)
+            }
+        }
         return solvearrClient.fetchPage(url)
     }
 
