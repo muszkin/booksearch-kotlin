@@ -213,10 +213,14 @@ paths:
           description: Email already exists
 
   /api/search:
-    get:
-      operationId: searchBooks
+    post:
+      operationId: submitSearch
       tags: [search]
-      summary: Search for books
+      summary: Submit an asynchronous book search
+      description: >
+        Scraping Anna's Archive runs through a headless browser and regularly exceeds
+        the 120 second proxy read timeout, so the search is queued and polled instead
+        of being answered inline.
       security:
         - bearerAuth: []
       parameters:
@@ -238,12 +242,6 @@ paths:
             type: string
             default: epub
           description: Book format filter
-        - name: page
-          in: query
-          schema:
-            type: integer
-            default: 1
-          description: Page number
         - name: maxPages
           in: query
           schema:
@@ -253,16 +251,42 @@ paths:
             maximum: 10
           description: Maximum pages to scrape
       responses:
-        '200':
-          description: Search results
+        '202':
+          description: Search job accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SearchResponse'
+                $ref: '#/components/schemas/SearchStartedResponse'
         '400':
           description: Missing or invalid query parameters
         '401':
           description: Not authenticated
+
+  /api/search/status/{jobId}:
+    get:
+      operationId: getSearchStatus
+      tags: [search]
+      summary: Poll the status and results of a search job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Search job identifier
+      responses:
+        '200':
+          description: Current search job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchJobStatusResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Search job not found
 
   /api/library:
     get:
@@ -1115,6 +1139,36 @@ components:
           type: integer
         query:
           type: string
+
+    SearchStartedResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+
+    SearchJobStatusResponse:
+      type: object
+      required: [jobId, query, status, results, totalResults]
+      properties:
+        jobId:
+          type: integer
+        query:
+          type: string
+        status:
+          type: string
+          enum: [queued, scraping, completed, failed]
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookResult'
+        totalResults:
+          type: integer
+        error:
+          type: string
+          nullable: true
 
     BookResult:
       type: object

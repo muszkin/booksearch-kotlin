@@ -1,18 +1,77 @@
 package pl.fairydeck.booksearch.service
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.jooq.generated.tables.records.BooksRecord
 import pl.fairydeck.booksearch.repository.BookRepository
+import pl.fairydeck.booksearch.repository.SearchJobRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 
 class SearchService(
     private val scraperService: ScraperService,
     private val bookRepository: BookRepository,
-    private val userLibraryRepository: UserLibraryRepository
+    private val userLibraryRepository: UserLibraryRepository,
+    private val searchJobRepository: SearchJobRepository
 ) {
 
     private val logger = LoggerFactory.getLogger(SearchService::class.java)
+    private val searchScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val json = Json { ignoreUnknownKeys = true }
+
+    fun startSearch(userId: Int, query: String, language: String, format: String, maxPages: Int): Int {
+        val jobId = searchJobRepository.create(userId, query, language, format, maxPages)
+        logger.info("Created search job {} for user {} query '{}'", jobId, userId, query)
+
+        searchScope.launch {
+            runSearchJob(jobId, userId, query, language, format, maxPages)
+        }
+
+        return jobId
+    }
+
+    fun getJobStatus(jobId: Int, userId: Int): SearchJobStatus? {
+        val job = searchJobRepository.findByIdAndUserId(jobId, userId) ?: return null
+        val results = job.results
+            ?.let { json.decodeFromString<List<BookResult>>(it) }
+            ?: emptyList()
+
+        return SearchJobStatus(
+            id = job.id!!,
+            query = job.query!!,
+            status = job.status!!,
+            results = results,
+            totalResults = job.totalResults ?: 0,
+            error = job.error
+        )
+    }
+
+    private suspend fun runSearchJob(
+        jobId: Int,
+        userId: Int,
+        query: String,
+        language: String,
+        format: String,
+        maxPages: Int
+    ) {
+        searchJobRepository.markScraping(jobId)
+        try {
+            val response = search(userId, query, language, format, page = 1, maxPages = maxPages)
+            searchJobRepository.markCompleted(
+                jobId,
+                json.encodeToString(response.results),
+                response.totalResults
+            )
+            logger.info("Search job {} completed with {} results", jobId, response.totalResults)
+        } catch (e: Exception) {
+            logger.warn("Search job {} failed: {}", jobId, e.message)
+            searchJobRepository.markFailed(jobId, e.message ?: "Search failed")
+        }
+    }
 
     suspend fun search(userId: Int, query: String, language: String, format: String, page: Int, maxPages: Int): SearchResponse {
         logger.info("Scraping fresh results for query='{}' language='{}' format='{}'", query, language, format)
@@ -87,6 +146,15 @@ class SearchService(
             ownedFormats = ownedFormats
         )
 }
+
+data class SearchJobStatus(
+    val id: Int,
+    val query: String,
+    val status: String,
+    val results: List<BookResult>,
+    val totalResults: Int,
+    val error: String?
+)
 
 @Serializable
 data class SearchResponse(

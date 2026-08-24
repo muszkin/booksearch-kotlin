@@ -1,15 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useSearchStore } from './search'
-import { SearchService, CancelablePromise, BookResult } from '@/api/generated'
-import type { SearchResponse } from '@/api/generated'
+import { SearchService, CancelablePromise, BookResult, SearchJobStatusResponse } from '@/api/generated'
+import type { SearchStartedResponse } from '@/api/generated'
 
 vi.mock('@/api/generated', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/generated')>()
   return {
     ...actual,
     SearchService: {
-      searchBooks: vi.fn(),
+      submitSearch: vi.fn(),
+      getSearchStatus: vi.fn(),
     },
   }
 })
@@ -30,95 +31,116 @@ const mockBook: BookResult = {
   ownedFormats: [],
 }
 
-const mockSearchResponse: SearchResponse = {
-  results: [mockBook],
-  totalResults: 1,
-  query: 'Przestrzen',
+const startedJob: SearchStartedResponse = { jobId: 7, status: 'queued' }
+
+function jobStatus(overrides: Partial<SearchJobStatusResponse>): SearchJobStatusResponse {
+  return {
+    jobId: 7,
+    query: 'Przestrzen',
+    status: SearchJobStatusResponse.status.QUEUED,
+    results: [],
+    totalResults: 0,
+    ...overrides,
+  }
 }
 
-function createResolvingPromise<T>(value: T): CancelablePromise<T> {
+function resolved<T>(value: T): CancelablePromise<T> {
   return new CancelablePromise((resolve) => resolve(value))
 }
 
-function createRejectingPromise<T>(error: Error): CancelablePromise<T> {
-  return new CancelablePromise((_resolve, reject) => reject(error))
-}
-
-describe('useSearchStore', () => {
+describe('useSearchStore async search', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
   })
 
-  it('calls SearchService.searchBooks with correct params', async () => {
-    vi.mocked(SearchService.searchBooks).mockReturnValue(
-      createResolvingPromise(mockSearchResponse),
-    )
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
+  it('submits the query and exposes results once the job completes', async () => {
+    vi.mocked(SearchService.submitSearch).mockReturnValue(resolved(startedJob))
+    vi.mocked(SearchService.getSearchStatus).mockReturnValue(
+      resolved(
+        jobStatus({
+          status: SearchJobStatusResponse.status.COMPLETED,
+          results: [mockBook],
+          totalResults: 1,
+        }),
+      ),
+    )
     const store = useSearchStore()
     store.query = 'Przestrzen'
-    store.language = 'pl'
-    store.format = 'epub'
 
     await store.search()
 
-    expect(SearchService.searchBooks).toHaveBeenCalledWith('Przestrzen', 'pl', 'epub')
-  })
-
-  it('sets loading true during API call and false after', async () => {
-    let resolvePromise: (value: SearchResponse) => void
-    vi.mocked(SearchService.searchBooks).mockReturnValue(
-      new CancelablePromise((resolve) => {
-        resolvePromise = resolve
-      }),
-    )
-
-    const store = useSearchStore()
-    store.query = 'test'
-
-    const searchPromise = store.search()
-    expect(store.loading).toBe(true)
-
-    resolvePromise!(mockSearchResponse)
-    await searchPromise
-
-    expect(store.loading).toBe(false)
-  })
-
-  it('stores results from SearchResponse on success', async () => {
-    vi.mocked(SearchService.searchBooks).mockReturnValue(
-      createResolvingPromise(mockSearchResponse),
-    )
-
-    const store = useSearchStore()
-    store.query = 'Przestrzen'
-    await store.search()
-
+    expect(SearchService.submitSearch).toHaveBeenCalledWith('Przestrzen', 'pl', 'epub')
+    expect(SearchService.getSearchStatus).toHaveBeenCalledWith(7)
     expect(store.results).toEqual([mockBook])
     expect(store.totalResults).toBe(1)
-    expect(store.hasResults).toBe(true)
+    expect(store.loading).toBe(false)
     expect(store.error).toBeNull()
   })
 
-  it('sets error string on API failure and clears results', async () => {
-    vi.mocked(SearchService.searchBooks).mockReturnValue(
-      createResolvingPromise(mockSearchResponse),
+  it('surfaces the backend error when the job fails', async () => {
+    vi.mocked(SearchService.submitSearch).mockReturnValue(resolved(startedJob))
+    vi.mocked(SearchService.getSearchStatus).mockReturnValue(
+      resolved(
+        jobStatus({
+          status: SearchJobStatusResponse.status.FAILED,
+          error: 'No working mirror available',
+        }),
+      ),
     )
-
     const store = useSearchStore()
     store.query = 'Przestrzen'
-    await store.search()
-    expect(store.results).toHaveLength(1)
 
-    vi.mocked(SearchService.searchBooks).mockReturnValue(
-      createRejectingPromise(new Error('Network error')),
-    )
-
-    store.query = 'failing query'
     await store.search()
 
-    expect(store.error).toBe('Network error')
+    expect(store.error).toBe('No working mirror available')
     expect(store.results).toEqual([])
+    expect(store.loading).toBe(false)
+  })
+
+  it('keeps polling while the job is still scraping', async () => {
+    vi.useFakeTimers()
+    vi.mocked(SearchService.submitSearch).mockReturnValue(resolved(startedJob))
+    vi.mocked(SearchService.getSearchStatus)
+      .mockReturnValueOnce(resolved(jobStatus({ status: SearchJobStatusResponse.status.SCRAPING })))
+      .mockReturnValueOnce(
+        resolved(
+          jobStatus({
+            status: SearchJobStatusResponse.status.COMPLETED,
+            results: [mockBook],
+            totalResults: 1,
+          }),
+        ),
+      )
+    const store = useSearchStore()
+    store.query = 'Przestrzen'
+
+    const pending = store.search()
+    await vi.advanceTimersByTimeAsync(1500)
+    await pending
+
+    expect(SearchService.getSearchStatus).toHaveBeenCalledTimes(2)
+    expect(store.results).toEqual([mockBook])
+  })
+
+  it('gives up after the polling timeout instead of spinning forever', async () => {
+    vi.useFakeTimers()
+    vi.mocked(SearchService.submitSearch).mockReturnValue(resolved(startedJob))
+    vi.mocked(SearchService.getSearchStatus).mockReturnValue(
+      resolved(jobStatus({ status: SearchJobStatusResponse.status.SCRAPING })),
+    )
+    const store = useSearchStore()
+    store.query = 'Przestrzen'
+
+    const pending = store.search()
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    await pending
+
+    expect(store.error).toBe('Search timed out. Try a narrower query.')
     expect(store.loading).toBe(false)
   })
 })

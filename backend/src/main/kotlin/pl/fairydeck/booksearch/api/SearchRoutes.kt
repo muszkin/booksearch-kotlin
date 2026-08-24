@@ -4,12 +4,14 @@ import io.ktor.http.*
 import io.ktor.server.auth.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 import pl.fairydeck.booksearch.ErrorResponse
+import pl.fairydeck.booksearch.service.BookResult
 import pl.fairydeck.booksearch.service.SearchService
 
 fun Route.searchRoutes(searchService: SearchService) {
     authenticate("jwt") {
-        get("/api/search") {
+        post("/api/search") {
             val principal = call.principal<UserPrincipal>()
                 ?: throw AuthenticationException("Authentication required")
 
@@ -19,47 +21,77 @@ fun Route.searchRoutes(searchService: SearchService) {
                     HttpStatusCode.BadRequest,
                     ErrorResponse(400, "Query parameter 'q' is required")
                 )
-                return@get
+                return@post
             }
 
             val language = call.request.queryParameters["lang"] ?: "pl"
-            if (language !in setOf("pl", "en", "de")) {
+            if (language !in ALLOWED_LANGUAGES) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid language. Allowed: pl, en, de"))
-                return@get
+                return@post
             }
 
             val format = call.request.queryParameters["ext"] ?: "epub"
-            if (format !in setOf("epub", "mobi", "pdf")) {
+            if (format !in ALLOWED_FORMATS) {
                 call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Invalid format. Allowed: epub, mobi, pdf"))
-                return@get
+                return@post
             }
 
-            val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
-            if (page < 1) {
-                call.respond(HttpStatusCode.BadRequest, ErrorResponse(400, "Page must be >= 1"))
-                return@get
-            }
-
-            val maxPages = call.request.queryParameters["maxPages"]?.toIntOrNull() ?: 3
-
-            if (maxPages !in 1..10) {
+            val maxPages = call.request.queryParameters["maxPages"]?.toIntOrNull() ?: DEFAULT_MAX_PAGES
+            if (maxPages !in MIN_MAX_PAGES..MAX_MAX_PAGES) {
                 call.respond(
                     HttpStatusCode.BadRequest,
-                    ErrorResponse(400, "maxPages must be between 1 and 10")
+                    ErrorResponse(400, "maxPages must be between $MIN_MAX_PAGES and $MAX_MAX_PAGES")
                 )
-                return@get
+                return@post
             }
 
-            val response = searchService.search(
-                userId = principal.userId,
-                query = query,
-                language = language,
-                format = format,
-                page = page,
-                maxPages = maxPages
-            )
+            val jobId = searchService.startSearch(principal.userId, query, language, format, maxPages)
+            call.respond(HttpStatusCode.Accepted, SearchStartedResponse(jobId = jobId, status = "queued"))
+        }
 
-            call.respond(HttpStatusCode.OK, response)
+        get("/api/search/status/{jobId}") {
+            val principal = call.principal<UserPrincipal>()
+                ?: throw AuthenticationException("Authentication required")
+
+            val jobId = call.parameters["jobId"]?.toIntOrNull()
+                ?: throw ValidationException("Invalid job ID")
+
+            val status = searchService.getJobStatus(jobId, principal.userId)
+                ?: throw NotFoundException("Search job not found")
+
+            call.respond(
+                HttpStatusCode.OK,
+                SearchJobStatusResponse(
+                    jobId = status.id,
+                    query = status.query,
+                    status = status.status,
+                    results = status.results,
+                    totalResults = status.totalResults,
+                    error = status.error
+                )
+            )
         }
     }
 }
+
+@Serializable
+data class SearchStartedResponse(
+    val jobId: Int,
+    val status: String
+)
+
+@Serializable
+data class SearchJobStatusResponse(
+    val jobId: Int,
+    val query: String,
+    val status: String,
+    val results: List<BookResult>,
+    val totalResults: Int,
+    val error: String? = null
+)
+
+private val ALLOWED_LANGUAGES = setOf("pl", "en", "de")
+private val ALLOWED_FORMATS = setOf("epub", "mobi", "pdf")
+private const val DEFAULT_MAX_PAGES = 3
+private const val MIN_MAX_PAGES = 1
+private const val MAX_MAX_PAGES = 10

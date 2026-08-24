@@ -8,7 +8,8 @@ import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 
 class ScraperService(
     private val solvearrClient: SolvearrClient,
-    private val mirrorService: MirrorService
+    private val mirrorService: MirrorService,
+    private val scrapeBudgetMillis: Long = DEFAULT_SCRAPE_BUDGET_MILLIS
 ) {
 
     private val logger = LoggerFactory.getLogger(ScraperService::class.java)
@@ -17,9 +18,20 @@ class ScraperService(
         val mirror = mirrorService.getActiveMirror()
             ?: throw ScraperException("No working mirror available")
 
+        val deadline = System.currentTimeMillis() + scrapeBudgetMillis
         val allResults = mutableListOf<ParsedBookEntry>()
 
         for (page in 1..maxPages) {
+            if (page > 1 && System.currentTimeMillis() >= deadline) {
+                logger.warn(
+                    "Scrape budget of {}ms exhausted after page {}, returning {} partial results",
+                    scrapeBudgetMillis,
+                    page - 1,
+                    allResults.size
+                )
+                break
+            }
+
             val url = buildSearchUrl(mirror, query, language, format, page)
             logger.info("Scraping page {} from: {}", page, url)
 
@@ -45,5 +57,9 @@ class ScraperService(
     private fun buildSearchUrl(mirror: String, query: String, language: String, format: String, page: Int): String {
         val encodedQuery = java.net.URLEncoder.encode(query, Charsets.UTF_8)
         return "$mirror/search?q=$encodedQuery&lang=$language&ext=$format&page=$page"
+    }
+
+    companion object {
+        const val DEFAULT_SCRAPE_BUDGET_MILLIS = 5L * 60 * 1000
     }
 }

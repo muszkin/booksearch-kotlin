@@ -25,3 +25,5 @@ databaseChangeLog:
       file: db/changelog/migrations/012-create-request-logs-table.sql
   - include:
       file: db/changelog/migrations/013-create-download-sources-table.sql
+  - include:
+      file: db/changelog/migrations/014-create-search-jobs-table.sql

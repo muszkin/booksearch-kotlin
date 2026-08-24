@@ -41,7 +41,9 @@ export type { RegisterRequest } from './models/RegisterRequest';
 export type { RegistrationStatusResponse } from './models/RegistrationStatusResponse';
 export type { RequestLogItem } from './models/RequestLogItem';
 export type { RequestLogListResponse } from './models/RequestLogListResponse';
+export { SearchJobStatusResponse } from './models/SearchJobStatusResponse';
 export type { SearchResponse } from './models/SearchResponse';
+export type { SearchStartedResponse } from './models/SearchStartedResponse';
 export type { ToggleRegistrationRequest } from './models/ToggleRegistrationRequest';
 export type { UserResponse } from './models/UserResponse';
 

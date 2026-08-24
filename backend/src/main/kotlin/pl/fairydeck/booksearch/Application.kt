@@ -52,6 +52,7 @@ import pl.fairydeck.booksearch.repository.MirrorRepository
 import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.RequestLogRepository
+import pl.fairydeck.booksearch.repository.SearchJobRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
@@ -131,7 +132,8 @@ fun Application.module() {
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
     val userSettingsRepository = UserSettingsRepository(dsl)
-    val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
+    val searchJobRepository = SearchJobRepository(dsl)
+    val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, searchJobRepository)
     val metadataService = MetadataService()
     val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService)
     val downloadJobRepository = DownloadJobRepository(dsl)

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ParsedBookEntry
 import pl.fairydeck.booksearch.repository.BookRepository
+import pl.fairydeck.booksearch.repository.SearchJobRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 
 class SearchServiceTest {
@@ -25,7 +26,7 @@ class SearchServiceTest {
         bookRepository = BookRepository(dsl)
         scraperService = mockk()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
+        searchService = SearchService(scraperService, bookRepository, userLibraryRepository, SearchJobRepository(dsl))
     }
 
     @Test
