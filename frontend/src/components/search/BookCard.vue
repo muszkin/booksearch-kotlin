@@ -18,6 +18,7 @@ interface Props {
   description?: string
   descriptionSource?: string
   isbn?: string
+  canRegenerate?: boolean
 }
 
 const props = defineProps<Props>()
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   download: []
   deliver: [device: string]
   'toggle-description': []
+  'regenerate-description': []
 }>()
 
 /**
@@ -184,6 +186,17 @@ function onCheckboxChange() {
           </p>
           <p class="whitespace-pre-line">{{ props.description }}</p>
           <p v-if="props.isbn" class="mt-1 text-xs text-zinc-500">ISBN {{ props.isbn }}</p>
+
+          <button
+            v-if="props.canRegenerate"
+            type="button"
+            data-testid="description-regenerate"
+            title="Replace the stored description with a freshly generated one, for everyone"
+            class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200"
+            @click="emit('regenerate-description')"
+          >
+            Wrong description? Regenerate with AI
+          </button>
         </template>
       </div>
     </div>

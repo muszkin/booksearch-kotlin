@@ -22,6 +22,8 @@ class BookDescriptionService(
 ) {
 
     private val logger = LoggerFactory.getLogger(BookDescriptionService::class.java)
+
+    val canGenerate: Boolean get() = openRouterClient.isConfigured
     private val enrichmentScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
@@ -67,6 +69,22 @@ class BookDescriptionService(
         bookRepository.markDescriptionChecked(bookMd5)
         logger.info("No description available for {}", bookMd5)
         return null
+    }
+
+    /**
+     * Replaces whatever is stored with a freshly generated description. Used when the
+     * archive's blurb is wrong for the book; the archive is not consulted again, and a
+     * decline from the model leaves the stored text untouched rather than blanking it.
+     */
+    suspend fun regenerate(bookMd5: String): BookDescription? {
+        val book = bookRepository.findByMd5(bookMd5) ?: return null
+
+        val generated = generateDescription(book.title.orEmpty(), book.author.orEmpty())
+            ?: return null
+
+        bookRepository.saveDescription(bookMd5, generated, SOURCE_GENERATED, isbn = null)
+        logger.info("Regenerated the description for {} on request", bookMd5)
+        return BookDescription(generated, SOURCE_GENERATED, book.isbn)
     }
 
     private suspend fun generateDescription(title: String, author: String): String? {

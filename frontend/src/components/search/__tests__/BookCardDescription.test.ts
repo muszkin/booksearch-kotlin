@@ -91,4 +91,57 @@ describe('BookCard description', () => {
 
     expect(wrapper.get('[data-testid="description-body"]').text()).toContain('9788308068069')
   })
+
+  it('offers regeneration once a description is shown', () => {
+    const wrapper = mountCard({
+      descriptionOpen: true,
+      description: BLURB,
+      descriptionSource: 'annas-archive',
+      canRegenerate: true,
+    })
+
+    expect(wrapper.find('[data-testid="description-regenerate"]').exists()).toBe(true)
+  })
+
+  it('hides regeneration when no AI key is configured', () => {
+    const wrapper = mountCard({
+      descriptionOpen: true,
+      description: BLURB,
+      descriptionSource: 'annas-archive',
+      canRegenerate: false,
+    })
+
+    expect(wrapper.find('[data-testid="description-regenerate"]').exists()).toBe(false)
+  })
+
+  it('asks the parent to regenerate', async () => {
+    const wrapper = mountCard({
+      descriptionOpen: true,
+      description: BLURB,
+      descriptionSource: 'annas-archive',
+      canRegenerate: true,
+    })
+
+    await wrapper.get('[data-testid="description-regenerate"]').trigger('click')
+
+    expect(wrapper.emitted('regenerate-description')).toHaveLength(1)
+  })
+
+  it('warns that regenerating replaces the stored text for everyone', () => {
+    const wrapper = mountCard({
+      descriptionOpen: true,
+      description: BLURB,
+      descriptionSource: 'annas-archive',
+      canRegenerate: true,
+    })
+
+    expect(wrapper.get('[data-testid="description-regenerate"]').attributes('title'))
+      .toMatch(/replace/i)
+  })
+
+  it('offers no regeneration while the description is still loading', () => {
+    const wrapper = mountCard({ descriptionOpen: true, descriptionLoading: true, canRegenerate: true })
+
+    expect(wrapper.find('[data-testid="description-regenerate"]').exists()).toBe(false)
+  })
 })

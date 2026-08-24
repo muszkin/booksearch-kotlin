@@ -115,6 +115,51 @@ class BookDescriptionServiceTest {
         assertNull(service.describe("ffffffffffffffffffffffffffffffff"))
     }
 
+    @Test
+    fun regeneratingReplacesAWrongBlurbWithAGeneratedOne() = runBlocking {
+        coEvery { recordClient.fetch(MD5, MIRROR) } returns BookRecord(BLURB, null)
+        service.describe(MD5)
+        coEvery { openRouterClient.describeBook("Solaris", "Stanisław Lem") } returns GENERATED
+
+        val result = service.regenerate(MD5)
+
+        assertEquals(GENERATED, result?.description)
+        assertEquals("openrouter", result?.source)
+        assertEquals(GENERATED, bookRepository.findByMd5(MD5)!!.description)
+    }
+
+    @Test
+    fun regeneratingDoesNotConsultTheArchiveAgain() = runBlocking {
+        coEvery { openRouterClient.describeBook(any(), any()) } returns GENERATED
+
+        service.regenerate(MD5)
+
+        coVerify(exactly = 0) { recordClient.fetch(any(), any()) }
+    }
+
+    @Test
+    fun regeneratingKeepsTheStoredBlurbWhenTheModelDeclines() = runBlocking {
+        coEvery { recordClient.fetch(MD5, MIRROR) } returns BookRecord(BLURB, null)
+        service.describe(MD5)
+        coEvery { openRouterClient.describeBook(any(), any()) } returns null
+
+        assertNull(service.regenerate(MD5))
+        assertEquals(BLURB, bookRepository.findByMd5(MD5)!!.description)
+    }
+
+    @Test
+    fun regeneratingIsUnavailableWithoutAnApiKey() = runBlocking {
+        every { openRouterClient.isConfigured } returns false
+
+        assertNull(service.regenerate(MD5))
+        coVerify(exactly = 0) { openRouterClient.describeBook(any(), any()) }
+    }
+
+    @Test
+    fun regeneratingReturnsNothingForABookItHasNeverSeen() = runBlocking {
+        assertNull(service.regenerate("ffffffffffffffffffffffffffffffff"))
+    }
+
     private fun book() = ParsedBookEntry(
         md5 = MD5,
         title = "Solaris",

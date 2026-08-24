@@ -13,6 +13,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
       submitSearch: vi.fn(),
       getSearchStatus: vi.fn(),
       getBookDescription: vi.fn(),
+      regenerateBookDescription: vi.fn(),
     },
     DownloadService: { startDownload: vi.fn() },
     LibraryService: { addToLibrary: vi.fn() },
@@ -100,5 +101,45 @@ describe('SearchView description', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="description-body"]').text()).toContain('No description')
+  })
+
+  it('swaps in the regenerated description straight away', async () => {
+    vi.mocked(SearchService.getBookDescription).mockResolvedValue({
+      description: 'A blurb about the wrong book entirely.',
+      source: 'annas-archive',
+      canRegenerate: true,
+    })
+    vi.mocked(SearchService.regenerateBookDescription).mockResolvedValue({
+      description: BLURB,
+      source: 'openrouter',
+      canRegenerate: true,
+    })
+    const wrapper = await mountWithResults()
+    await wrapper.get('[data-testid="description-toggle"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="description-regenerate"]').trigger('click')
+    await flushPromises()
+
+    const body = wrapper.get('[data-testid="description-body"]')
+    expect(body.text()).toContain('Stacja badawcza')
+    expect(wrapper.get('[data-testid="description-generated-label"]').text()).toMatch(/AI/i)
+  })
+
+  it('keeps the existing description when regeneration fails', async () => {
+    vi.mocked(SearchService.getBookDescription).mockResolvedValue({
+      description: 'The original blurb.',
+      source: 'annas-archive',
+      canRegenerate: true,
+    })
+    vi.mocked(SearchService.regenerateBookDescription).mockRejectedValue(new Error('404'))
+    const wrapper = await mountWithResults()
+    await wrapper.get('[data-testid="description-toggle"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="description-regenerate"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="description-body"]').text()).toContain('The original blurb.')
   })
 })

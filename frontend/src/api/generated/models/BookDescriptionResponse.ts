@@ -9,6 +9,10 @@ export type BookDescriptionResponse = {
      */
     source: BookDescriptionResponse.source;
     isbn?: string | null;
+    /**
+     * False when no OpenRouter key is configured
+     */
+    canRegenerate?: boolean;
 };
 export namespace BookDescriptionResponse {
     /**

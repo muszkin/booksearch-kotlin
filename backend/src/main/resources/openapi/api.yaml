@@ -365,6 +365,36 @@ paths:
         '404':
           description: No description available
 
+  /api/books/{md5}/description/regenerate:
+    post:
+      operationId: regenerateBookDescription
+      tags: [search]
+      summary: Replace the stored description with a freshly generated one
+      description: >
+        Used when the publisher blurb is wrong for the book. Generates a description
+        through OpenRouter and stores it in place of whatever was there; the archive is
+        not consulted. Answers 404 when no key is configured or the model declines, in
+        which case the stored text is left untouched.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: md5
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Description regenerated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDescriptionResponse'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Could not generate a description
+
   /api/library:
     get:
       operationId: getUserLibrary
@@ -1255,6 +1285,9 @@ components:
         isbn:
           type: string
           nullable: true
+        canRegenerate:
+          type: boolean
+          description: False when no OpenRouter key is configured
 
     SearchStartedResponse:
       type: object

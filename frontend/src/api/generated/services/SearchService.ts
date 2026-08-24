@@ -85,4 +85,27 @@ export class SearchService {
             },
         });
     }
+    /**
+     * Replace the stored description with a freshly generated one
+     * Used when the publisher blurb is wrong for the book. Generates a description through OpenRouter and stores it in place of whatever was there; the archive is not consulted. Answers 404 when no key is configured or the model declines, in which case the stored text is left untouched.
+     *
+     * @param md5
+     * @returns BookDescriptionResponse Description regenerated
+     * @throws ApiError
+     */
+    public static regenerateBookDescription(
+        md5: string,
+    ): CancelablePromise<BookDescriptionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/books/{md5}/description/regenerate',
+            path: {
+                'md5': md5,
+            },
+            errors: {
+                401: `Not authenticated`,
+                404: `Could not generate a description`,
+            },
+        });
+    }
 }

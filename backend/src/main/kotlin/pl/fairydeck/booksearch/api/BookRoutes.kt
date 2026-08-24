@@ -9,6 +9,26 @@ import pl.fairydeck.booksearch.service.BookDescriptionService
 
 fun Route.bookRoutes(bookDescriptionService: BookDescriptionService) {
     authenticate("jwt") {
+        post("/api/books/{md5}/description/regenerate") {
+            call.principal<UserPrincipal>() ?: throw AuthenticationException("Authentication required")
+
+            val md5 = call.parameters["md5"]?.takeIf { it.isNotBlank() }
+                ?: throw ValidationException("Missing md5 parameter")
+
+            val description = bookDescriptionService.regenerate(md5)
+                ?: throw NotFoundException("Could not generate a description for this book")
+
+            call.respond(
+                HttpStatusCode.OK,
+                BookDescriptionResponse(
+                    description = description.description,
+                    source = description.source,
+                    isbn = description.isbn,
+                    canRegenerate = bookDescriptionService.canGenerate
+                )
+            )
+        }
+
         get("/api/books/{md5}/description") {
             call.principal<UserPrincipal>() ?: throw AuthenticationException("Authentication required")
 
@@ -23,7 +43,8 @@ fun Route.bookRoutes(bookDescriptionService: BookDescriptionService) {
                 BookDescriptionResponse(
                     description = description.description,
                     source = description.source,
-                    isbn = description.isbn
+                    isbn = description.isbn,
+                    canRegenerate = bookDescriptionService.canGenerate
                 )
             )
         }
@@ -34,5 +55,7 @@ fun Route.bookRoutes(bookDescriptionService: BookDescriptionService) {
 data class BookDescriptionResponse(
     val description: String,
     val source: String,
-    val isbn: String? = null
+    val isbn: String? = null,
+    /** False when no OpenRouter key is configured, so the interface can hide the control. */
+    val canRegenerate: Boolean = false
 )

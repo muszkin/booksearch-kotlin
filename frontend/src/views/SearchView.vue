@@ -31,9 +31,30 @@ interface DescriptionState {
   text?: string
   source?: string
   isbn?: string
+  canRegenerate?: boolean
 }
 
 const descriptions = reactive(new Map<string, DescriptionState>())
+
+async function handleRegenerateDescription(md5: string) {
+  const state = descriptions.get(md5)
+  if (!state) return
+
+  state.loading = true
+  state.missing = false
+  try {
+    const result = await SearchService.regenerateBookDescription(md5)
+    state.text = result.description
+    state.source = result.source
+    state.isbn = result.isbn ?? undefined
+    state.canRegenerate = result.canRegenerate
+  } catch {
+    // The stored description is left as it was; say nothing louder than that.
+    state.missing = state.text === undefined
+  } finally {
+    state.loading = false
+  }
+}
 
 async function handleToggleDescription(md5: string) {
   const existing = descriptions.get(md5)
@@ -53,6 +74,7 @@ async function handleToggleDescription(md5: string) {
     state.text = result.description
     state.source = result.source
     state.isbn = result.isbn ?? undefined
+    state.canRegenerate = result.canRegenerate
   } catch {
     // A missing description is an ordinary outcome, not an error worth shouting about.
     state.missing = true
@@ -257,7 +279,9 @@ function handleDrawerClose() {
             :description="descriptions.get(book.md5)?.text"
             :description-source="descriptions.get(book.md5)?.source"
             :isbn="descriptions.get(book.md5)?.isbn"
+            :can-regenerate="descriptions.get(book.md5)?.canRegenerate ?? false"
             @toggle-description="handleToggleDescription(book.md5)"
+            @regenerate-description="handleRegenerateDescription(book.md5)"
             @toggle-select="handleToggleSelect(book)"
             @download="handleDownload(book.md5)"
             @deliver="handleDeliver(book.md5, $event)"
