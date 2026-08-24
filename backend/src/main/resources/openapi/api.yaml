@@ -172,6 +172,50 @@ paths:
         '403':
           description: Not authorized
 
+  /api/admin/description-prompt:
+    get:
+      operationId: getDescriptionPrompt
+      tags: [admin]
+      summary: Read the configurable half of the AI description prompt (super-admin)
+      responses:
+        '200':
+          description: Current prompt configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescriptionPromptResponse'
+        '403':
+          description: Not authorized
+    put:
+      operationId: setDescriptionPrompt
+      tags: [admin]
+      summary: Replace the configurable half of the prompt (super-admin)
+      description: >
+        Sets how books should be described. The rule forbidding invented plots is appended
+        by the backend and cannot be edited here, so a style change can never disarm it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DescriptionPromptRequest'
+      responses:
+        '200':
+          description: Prompt updated
+        '400':
+          description: Empty style or negative minimum length
+        '403':
+          description: Not authorized
+    delete:
+      operationId: resetDescriptionPrompt
+      tags: [admin]
+      summary: Restore the built-in prompt and minimum length (super-admin)
+      responses:
+        '200':
+          description: Prompt reset
+        '403':
+          description: Not authorized
+
   /api/admin/users:
     get:
       operationId: listUsers
@@ -1172,6 +1216,31 @@ components:
           type: integer
         query:
           type: string
+
+    DescriptionPromptResponse:
+      type: object
+      required: [style, minLength, isDefault, guard]
+      properties:
+        style:
+          type: string
+          description: The editable half — how a book should be described
+        minLength:
+          type: integer
+          description: Answers shorter than this are discarded as unreliable
+        isDefault:
+          type: boolean
+        guard:
+          type: string
+          description: Read-only; always appended, forbids invented plots
+
+    DescriptionPromptRequest:
+      type: object
+      required: [style, minLength]
+      properties:
+        style:
+          type: string
+        minLength:
+          type: integer
 
     BookDescriptionResponse:
       type: object

@@ -23,7 +23,8 @@ import org.slf4j.LoggerFactory
  */
 class OpenRouterClient(
     private val config: OpenRouterConfig,
-    private val httpClientOverride: HttpClient? = null
+    private val httpClientOverride: HttpClient? = null,
+    private val settings: () -> DescriptionPromptSettings = { DescriptionPromptSettings.DEFAULT }
 ) {
 
     private val logger = LoggerFactory.getLogger(OpenRouterClient::class.java)
@@ -42,11 +43,12 @@ class OpenRouterClient(
 
     suspend fun describeBook(title: String, author: String): String? {
         val apiKey = config.apiKey ?: return null
+        val prompt = settings()
 
         val request = CompletionRequest(
             model = config.model,
             messages = listOf(
-                Message("system", SYSTEM_PROMPT),
+                Message("system", prompt.style.trim() + "\n" + GUARD),
                 Message("user", "Title: $title\nAuthor: $author")
             )
         )
@@ -75,7 +77,7 @@ class OpenRouterClient(
         }
 
         val answer = completion.choices.firstOrNull()?.message?.content?.trim().orEmpty()
-        if (!isUsable(answer)) {
+        if (!isUsable(answer, prompt.minLength)) {
             logger.info("OpenRouter did not recognise '{}' by {}", title, author)
             return null
         }
@@ -84,8 +86,8 @@ class OpenRouterClient(
         return answer
     }
 
-    private fun isUsable(answer: String): Boolean {
-        if (answer.length < MIN_DESCRIPTION_LENGTH) return false
+    private fun isUsable(answer: String, minLength: Int): Boolean {
+        if (answer.length < minLength) return false
         if (answer.equals(UNKNOWN_MARKER, ignoreCase = true)) return false
         return HEDGING_MARKERS.none { answer.contains(it, ignoreCase = true) }
     }
@@ -94,10 +96,9 @@ class OpenRouterClient(
         if (httpClientOverride == null) httpClient.close()
     }
 
-    private companion object {
+    companion object {
         const val COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
         const val UNKNOWN_MARKER = "UNKNOWN"
-        const val MIN_DESCRIPTION_LENGTH = 80
 
         val HEDGING_MARKERS = listOf(
             "i don't have",
@@ -110,14 +111,16 @@ class OpenRouterClient(
             "as an ai"
         )
 
-        val SYSTEM_PROMPT = """
-            You describe books for a library catalogue.
-            Given a title and author, reply with two to four sentences describing what the
-            book is about, in the language the title is written in.
-            Reply with exactly the word UNKNOWN if you are not confident you know this
-            specific book. Never guess from the title alone, and never invent a plot.
-            Reply with the description only, with no preamble and no commentary.
-        """.trimIndent()
+        /**
+         * Appended to whatever style an administrator configures, and deliberately not
+         * editable. The archive is full of obscure titles a model can only guess at, so a
+         * style edit must not be able to remove the instruction that forbids guessing.
+         */
+        val GUARD = listOf(
+            "Reply with exactly the word UNKNOWN if you are not confident you know this",
+            "specific book. Never guess from the title alone, and never invent a plot.",
+            "Reply with the description only, with no preamble and no commentary."
+        ).joinToString("\n")
     }
 }
 
@@ -167,3 +170,19 @@ private data class CompletionResponse(
 private data class Choice(
     val message: Message? = null
 )
+
+/**
+ * The administrator-controlled half of the description prompt. The rule forbidding
+ * invented plots lives in [OpenRouterClient.GUARD] and is not represented here.
+ */
+data class DescriptionPromptSettings(
+    val style: String,
+    val minLength: Int
+) {
+    companion object {
+        val DEFAULT = DescriptionPromptSettings(
+            style = "You describe books for a library catalogue.",
+            minLength = 80
+        )
+    }
+}

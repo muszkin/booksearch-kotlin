@@ -4,6 +4,8 @@
 /* eslint-disable */
 import type { ChangePasswordRequest } from '../models/ChangePasswordRequest';
 import type { CreateUserRequest } from '../models/CreateUserRequest';
+import type { DescriptionPromptRequest } from '../models/DescriptionPromptRequest';
+import type { DescriptionPromptResponse } from '../models/DescriptionPromptResponse';
 import type { LoginResponse } from '../models/LoginResponse';
 import type { ToggleRegistrationRequest } from '../models/ToggleRegistrationRequest';
 import type { UserResponse } from '../models/UserResponse';
@@ -25,6 +27,56 @@ export class AdminService {
             url: '/api/admin/registration',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                403: `Not authorized`,
+            },
+        });
+    }
+    /**
+     * Read the configurable half of the AI description prompt (super-admin)
+     * @returns DescriptionPromptResponse Current prompt configuration
+     * @throws ApiError
+     */
+    public static getDescriptionPrompt(): CancelablePromise<DescriptionPromptResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/description-prompt',
+            errors: {
+                403: `Not authorized`,
+            },
+        });
+    }
+    /**
+     * Replace the configurable half of the prompt (super-admin)
+     * Sets how books should be described. The rule forbidding invented plots is appended by the backend and cannot be edited here, so a style change can never disarm it.
+     *
+     * @param requestBody
+     * @returns any Prompt updated
+     * @throws ApiError
+     */
+    public static setDescriptionPrompt(
+        requestBody: DescriptionPromptRequest,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/admin/description-prompt',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Empty style or negative minimum length`,
+                403: `Not authorized`,
+            },
+        });
+    }
+    /**
+     * Restore the built-in prompt and minimum length (super-admin)
+     * @returns any Prompt reset
+     * @throws ApiError
+     */
+    public static resetDescriptionPrompt(): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/admin/description-prompt',
             errors: {
                 403: `Not authorized`,
             },

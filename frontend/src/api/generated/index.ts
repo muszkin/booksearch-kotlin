@@ -22,6 +22,8 @@ export type { CoverBackfillResult } from './models/CoverBackfillResult';
 export type { CreateUserRequest } from './models/CreateUserRequest';
 export type { DeliveryRecord } from './models/DeliveryRecord';
 export { DeliveryResponse } from './models/DeliveryResponse';
+export type { DescriptionPromptRequest } from './models/DescriptionPromptRequest';
+export type { DescriptionPromptResponse } from './models/DescriptionPromptResponse';
 export type { DeviceSettingsRequest } from './models/DeviceSettingsRequest';
 export type { DeviceSettingsResponse } from './models/DeviceSettingsResponse';
 export type { DownloadJobItem } from './models/DownloadJobItem';

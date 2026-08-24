@@ -23,7 +23,7 @@ class OpenRouterClientTest {
     fun isDisabledWhenNoApiKeyIsConfigured() = runBlocking {
         var called = false
         val engine = MockEngine { called = true; respondCompletion("anything") }
-        val client = OpenRouterClient(config(apiKey = null), HttpClient(engine))
+        val client = OpenRouterClient(config(apiKey = null), HttpClient(engine)) { settings() }
 
         assertFalse(client.isConfigured)
         assertNull(client.describeBook("Solaris", "Stanisław Lem"))
@@ -34,7 +34,7 @@ class OpenRouterClientTest {
     fun returnsTheGeneratedDescription() = runBlocking {
         val engine = MockEngine { respondCompletion(REAL_DESCRIPTION) }
 
-        val summary = OpenRouterClient(config(), HttpClient(engine)).describeBook("Solaris", "Lem")
+        val summary = OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem")
 
         assertEquals(REAL_DESCRIPTION, summary)
     }
@@ -49,7 +49,7 @@ class OpenRouterClientTest {
             respondCompletion("ok")
         }
 
-        OpenRouterClient(config(), HttpClient(engine)).describeBook("Solaris", "Lem")
+        OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem")
 
         assertEquals("Bearer test-key", auth)
         assertTrue(body.contains("openrouter/auto"), "expected the configured model in $body")
@@ -61,7 +61,7 @@ class OpenRouterClientTest {
     fun treatsTheAgreedUnknownMarkerAsNoAnswer() = runBlocking {
         val engine = MockEngine { respondCompletion("UNKNOWN") }
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)).describeBook("Obscure", "Nobody"))
+        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Obscure", "Nobody"))
     }
 
     @Test
@@ -70,21 +70,21 @@ class OpenRouterClientTest {
             respondCompletion("I don't have any information about this book.")
         }
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)).describeBook("Obscure", "Nobody"))
+        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Obscure", "Nobody"))
     }
 
     @Test
     fun rejectsAnAnswerTooShortToBeADescription() = runBlocking {
         val engine = MockEngine { respondCompletion("A novel.") }
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)).describeBook("Solaris", "Lem"))
+        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem"))
     }
 
     @Test
     fun staysQuietWhenTheServiceFails() = runBlocking {
         val engine = MockEngine { respond("upstream exploded", HttpStatusCode.ServiceUnavailable) }
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)).describeBook("Solaris", "Lem"))
+        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem"))
     }
 
     private fun MockRequestHandleScope.respondCompletion(content: String) = respond(
@@ -105,8 +105,52 @@ class OpenRouterClientTest {
                 "and the book turns first contact into a study of human limitation."
     }
 
+    private fun settings(
+        style: String = "You describe books for a library catalogue.",
+        minLength: Int = 80
+    ) = DescriptionPromptSettings(style, minLength)
+
     private fun config(apiKey: String? = "test-key") = OpenRouterConfig(
         apiKey = apiKey,
         model = "openrouter/auto"
     )
+
+    @Test
+    fun usesTheAdministratorsStyleInsteadOfTheBuiltInOne() = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respondCompletion(REAL_DESCRIPTION)
+        }
+
+        OpenRouterClient(config(), HttpClient(engine)) { settings(style = "Write eight sentences.") }
+            .describeBook("Solaris", "Lem")
+
+        assertTrue(body.contains("Write eight sentences."), "expected the configured style in $body")
+    }
+
+    @Test
+    fun appendsTheGuardEvenWhenTheStyleOmitsIt() = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respondCompletion(REAL_DESCRIPTION)
+        }
+
+        // An administrator cannot disarm the rule that forbids invented plots.
+        OpenRouterClient(config(), HttpClient(engine)) { settings(style = "Just describe the book.") }
+            .describeBook("Solaris", "Lem")
+
+        assertTrue(body.contains("UNKNOWN"), "the guard must survive any style edit: $body")
+    }
+
+    @Test
+    fun honoursTheConfiguredMinimumLength() = runBlocking {
+        val engine = MockEngine { respondCompletion("A short one.") }
+
+        val summary = OpenRouterClient(config(), HttpClient(engine)) { settings(minLength = 5) }
+            .describeBook("Solaris", "Lem")
+
+        assertEquals("A short one.", summary)
+    }
 }

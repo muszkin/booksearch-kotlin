@@ -46,6 +46,7 @@ import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
 import pl.fairydeck.booksearch.infrastructure.AnnaArchiveRecordClient
+import pl.fairydeck.booksearch.infrastructure.DescriptionPromptSettings
 import pl.fairydeck.booksearch.infrastructure.AnnaArchiveSessionClient
 import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
 import pl.fairydeck.booksearch.infrastructure.OpenRouterConfig
@@ -153,7 +154,12 @@ fun Application.module() {
     val bookDescriptionService = BookDescriptionService(
         bookRepository,
         AnnaArchiveRecordClient(annaArchiveSessionClient),
-        OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)),
+        OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)) {
+            DescriptionPromptSettings(
+                style = systemConfigRepository.getDescriptionStyle(),
+                minLength = systemConfigRepository.getMinDescriptionLength()
+            )
+        },
         mirrorService
     )
     val downloadService = DownloadService(
@@ -371,7 +377,7 @@ private fun Application.configureRouting(
     routing {
         healthRoutes()
         authRoutes(authService, systemConfigRepository)
-        adminRoutes(authService)
+        adminRoutes(authService, systemConfigRepository)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
         bookRoutes(bookDescriptionService)

@@ -3,11 +3,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
-import type { UserResponse } from '@/api/generated'
+import { AdminService } from '@/api/generated'
+import type { DescriptionPromptResponse, UserResponse } from '@/api/generated'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import UserTable from '@/components/admin/UserTable.vue'
 import InviteUserForm from '@/components/admin/InviteUserForm.vue'
 import ChangeUserPasswordModal from '@/components/admin/ChangeUserPasswordModal.vue'
+import DescriptionPromptCard from '@/components/admin/DescriptionPromptCard.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
 
 const adminStore = useAdminStore()
@@ -47,8 +49,41 @@ async function handleImpersonate(userId: number) {
   }
 }
 
+const descriptionPrompt = ref<DescriptionPromptResponse | null>(null)
+const savingPrompt = ref(false)
+
+async function loadDescriptionPrompt() {
+  try {
+    descriptionPrompt.value = await AdminService.getDescriptionPrompt()
+  } catch {
+    // The card simply stays hidden if the prompt cannot be read.
+    descriptionPrompt.value = null
+  }
+}
+
+async function saveDescriptionPrompt(payload: { style: string; minLength: number }) {
+  savingPrompt.value = true
+  try {
+    await AdminService.setDescriptionPrompt({ style: payload.style, minLength: payload.minLength })
+    await loadDescriptionPrompt()
+  } finally {
+    savingPrompt.value = false
+  }
+}
+
+async function resetDescriptionPrompt() {
+  savingPrompt.value = true
+  try {
+    await AdminService.resetDescriptionPrompt()
+    await loadDescriptionPrompt()
+  } finally {
+    savingPrompt.value = false
+  }
+}
+
 onMounted(() => {
   adminStore.fetchUsers()
+  loadDescriptionPrompt()
 })
 </script>
 
@@ -110,6 +145,17 @@ onMounted(() => {
         <InviteUserForm />
       </div>
     </section>
+
+    <DescriptionPromptCard
+      v-if="descriptionPrompt"
+      :prompt-style="descriptionPrompt.style"
+      :min-length="descriptionPrompt.minLength"
+      :is-default="descriptionPrompt.isDefault"
+      :guard="descriptionPrompt.guard"
+      :saving="savingPrompt"
+      @save="saveDescriptionPrompt"
+      @reset="resetDescriptionPrompt"
+    />
 
     <ChangeUserPasswordModal
       :user="selectedUser"
