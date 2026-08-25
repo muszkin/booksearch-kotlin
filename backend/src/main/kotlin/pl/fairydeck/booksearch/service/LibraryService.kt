@@ -14,7 +14,8 @@ class LibraryService(
     private val userLibraryRepository: UserLibraryRepository,
     private val bookRepository: BookRepository,
     private val scraperConfig: ScraperConfig,
-    private val metadataService: MetadataService? = null
+    private val metadataService: MetadataService? = null,
+    private val bookDescriptionService: BookDescriptionService? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(LibraryService::class.java)
@@ -40,7 +41,8 @@ class LibraryService(
             coverUrl = book.coverUrl ?: "",
             publisher = book.publisher ?: "",
             year = book.year ?: "",
-            description = book.description ?: ""
+            description = book.description ?: "",
+            descriptionSource = book.descriptionSource ?: ""
         )
     }
 
@@ -53,7 +55,8 @@ class LibraryService(
             totalItems = totalItems,
             page = page,
             pageSize = pageSize,
-            totalPages = ((totalItems + pageSize - 1) / pageSize).toInt()
+            totalPages = ((totalItems + pageSize - 1) / pageSize).toInt(),
+            canRegenerate = bookDescriptionService?.canGenerate ?: false
         )
     }
 
@@ -181,7 +184,8 @@ class LibraryService(
         coverUrl = coverUrl,
         publisher = publisher,
         year = year,
-        description = description
+        description = description,
+        descriptionSource = descriptionSource
     )
 }
 
@@ -200,7 +204,8 @@ data class LibraryBook(
     val coverUrl: String,
     val publisher: String,
     val year: String,
-    val description: String
+    val description: String,
+    val descriptionSource: String
 )
 
 @Serializable
@@ -209,7 +214,9 @@ data class LibraryListResponse(
     val totalItems: Long,
     val page: Int,
     val pageSize: Int,
-    val totalPages: Int
+    val totalPages: Int,
+    /** False when no OpenRouter key is configured, so the interface can hide the generate controls. */
+    val canRegenerate: Boolean
 )
 
 @Serializable

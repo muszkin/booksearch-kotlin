@@ -7,6 +7,7 @@ import {
   ConvertService,
   DeliverService,
   SettingsService,
+  SearchService,
 } from '@/api/generated'
 import type {
   LibraryBook,
@@ -16,6 +17,8 @@ import type {
 } from '@/api/generated'
 
 const POLL_INTERVAL_MS = 5000
+/** Each lookup can take seconds; a handful at a time keeps a full page from crawling. */
+const DESCRIPTION_LOOKUP_CONCURRENCY = 3
 const TERMINAL_DOWNLOAD_STATUSES = ['completed', 'failed', 'cancelled']
 const TERMINAL_CONVERSION_STATUSES = ['completed', 'failed']
 
@@ -26,6 +29,9 @@ export const useLibraryStore = defineStore('library', () => {
   const activeConversions = ref(new Map<number, ConversionStatusResponse>())
   const deliveries = ref(new Map<string, DeliveryRecord[]>())
   const deviceSettings = ref({ kindle: false, pocketbook: false })
+  const canRegenerate = ref(false)
+  const descriptionLoading = ref(new Set<string>())
+  const descriptionsWithoutText = ref(new Set<string>())
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -49,6 +55,100 @@ export const useLibraryStore = defineStore('library', () => {
     return deliveries.value.get(bookMd5) ?? []
   }
 
+  function isDescriptionLoading(bookMd5: string): boolean {
+    return descriptionLoading.value.has(bookMd5)
+  }
+
+  function isDescriptionMissing(bookMd5: string): boolean {
+    return descriptionsWithoutText.value.has(bookMd5)
+  }
+
+  function markDescriptionLoading(bookMd5: string, isLoading: boolean) {
+    const updated = new Set(descriptionLoading.value)
+    if (isLoading) {
+      updated.add(bookMd5)
+    } else {
+      updated.delete(bookMd5)
+    }
+    descriptionLoading.value = updated
+  }
+
+  function markDescriptionMissing(bookMd5: string, isMissing: boolean) {
+    const updated = new Set(descriptionsWithoutText.value)
+    if (isMissing) {
+      updated.add(bookMd5)
+    } else {
+      updated.delete(bookMd5)
+    }
+    descriptionsWithoutText.value = updated
+  }
+
+  /** The same book can sit in the library in several formats; all of them show the text. */
+  function applyDescription(bookMd5: string, description: string, source: string) {
+    books.value = books.value.map((book) =>
+      book.bookMd5 === bookMd5 ? { ...book, description, descriptionSource: source } : book,
+    )
+  }
+
+  async function resolveDescription(bookMd5: string) {
+    markDescriptionLoading(bookMd5, true)
+    try {
+      const resolved = await SearchService.getBookDescription(bookMd5)
+      applyDescription(bookMd5, resolved.description, resolved.source)
+      markDescriptionMissing(bookMd5, false)
+    } catch {
+      // A book nothing knows about is an ordinary outcome, not an error worth shouting about.
+      markDescriptionMissing(bookMd5, true)
+    } finally {
+      markDescriptionLoading(bookMd5, false)
+    }
+  }
+
+  /**
+   * Looks up the books the library holds no description for. The backend remembers a
+   * fruitless lookup, so revisiting the page does not repeat the expensive part.
+   */
+  async function resolveMissingDescriptions() {
+    const pending = [
+      ...new Set(
+        books.value
+          .filter((book) => !book.description)
+          .map((book) => book.bookMd5)
+          .filter((md5) => !isDescriptionLoading(md5) && !isDescriptionMissing(md5)),
+      ),
+    ]
+    if (pending.length === 0) return
+
+    for (const md5 of pending) markDescriptionLoading(md5, true)
+
+    const queue = [...pending]
+    const workers = Array.from(
+      { length: Math.min(DESCRIPTION_LOOKUP_CONCURRENCY, queue.length) },
+      async () => {
+        let next = queue.shift()
+        while (next !== undefined) {
+          await resolveDescription(next)
+          next = queue.shift()
+        }
+      },
+    )
+
+    await Promise.all(workers)
+  }
+
+  async function regenerateDescription(bookMd5: string) {
+    markDescriptionLoading(bookMd5, true)
+    try {
+      const generated = await SearchService.regenerateBookDescription(bookMd5)
+      applyDescription(bookMd5, generated.description, generated.source)
+      markDescriptionMissing(bookMd5, false)
+    } catch {
+      // The stored description is left as it was; say nothing louder than that.
+    } finally {
+      markDescriptionLoading(bookMd5, false)
+    }
+  }
+
   async function fetchLibrary(page: number) {
     loading.value = true
     error.value = null
@@ -56,6 +156,7 @@ export const useLibraryStore = defineStore('library', () => {
     try {
       const response = await LibraryService.getUserLibrary(page, pagination.value.pageSize)
       books.value = response.items
+      canRegenerate.value = response.canRegenerate
       pagination.value = {
         page: response.page,
         pageSize: response.pageSize,
@@ -277,6 +378,7 @@ export const useLibraryStore = defineStore('library', () => {
     activeConversions,
     deliveries,
     deviceSettings,
+    canRegenerate,
     loading,
     error,
     hasBooks,
@@ -284,6 +386,10 @@ export const useLibraryStore = defineStore('library', () => {
     isDownloading,
     isConverting,
     getDeliveries,
+    isDescriptionLoading,
+    isDescriptionMissing,
+    resolveMissingDescriptions,
+    regenerateDescription,
     fetchLibrary,
     fetchDownloadStatuses,
     fetchDeviceSettings,

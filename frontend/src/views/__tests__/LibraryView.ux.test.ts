@@ -48,6 +48,7 @@ const mockBook: LibraryBook = {
   publisher: 'Publisher',
   year: '2025',
   description: 'A test book',
+  descriptionSource: 'annas-archive',
 }
 
 function createTestRouter() {

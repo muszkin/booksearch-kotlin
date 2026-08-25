@@ -17,5 +17,9 @@ export type LibraryBook = {
     publisher: string;
     year: string;
     description: string;
+    /**
+     * Empty when no description is stored; otherwise annas-archive or openrouter.
+     */
+    descriptionSource: string;
 };
 

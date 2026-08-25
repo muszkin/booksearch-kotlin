@@ -24,6 +24,7 @@ function createBook(overrides: Partial<LibraryBook> = {}): LibraryBook {
     publisher: 'Test Publisher',
     year: '2024',
     description: 'A test book',
+    descriptionSource: 'annas-archive',
     ...overrides,
   }
 }
@@ -202,5 +203,80 @@ describe('LibraryBookCard', () => {
 
     await wrapper.find('[data-testid="remove-btn"]').trigger('click')
     expect(wrapper.emitted('remove')).toHaveLength(1)
+  })
+
+  it('shows the stored description without asking the reader to expand anything', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: 'A sweeping tale of nothing much.' }),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'A sweeping tale of nothing much.',
+    )
+    expect(wrapper.find('[data-testid="description-generated-label"]').exists()).toBe(false)
+  })
+
+  it('labels a generated description so it is not mistaken for publisher copy', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: 'Guessed at.', descriptionSource: 'openrouter' }),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-generated-label"]').exists()).toBe(true)
+  })
+
+  it('offers regeneration only when a key is configured', () => {
+    const withKey = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: true },
+    })
+    const withoutKey = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: false },
+    })
+
+    expect(withKey.find('[data-testid="description-regenerate"]').exists()).toBe(true)
+    expect(withoutKey.find('[data-testid="description-regenerate"]').exists()).toBe(false)
+  })
+
+  it('emits regenerate-description when the reader asks for a fresh one', async () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: true },
+    })
+
+    await wrapper.find('[data-testid="description-regenerate"]').trigger('click')
+
+    expect(wrapper.emitted('regenerate-description')).toHaveLength(1)
+  })
+
+  it('reports the lookup while a description is still being resolved', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: '', descriptionSource: '' }),
+        descriptionLoading: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'Looking for a description',
+    )
+  })
+
+  it('says so when the lookup came back with nothing', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: '', descriptionSource: '' }),
+        descriptionMissing: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'No description available',
+    )
   })
 })

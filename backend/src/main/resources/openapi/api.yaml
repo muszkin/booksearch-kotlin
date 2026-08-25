@@ -1391,7 +1391,7 @@ components:
 
     LibraryBook:
       type: object
-      required: [id, bookMd5, format, addedAt, title, author, language, fileSize, detailUrl, coverUrl, publisher, year, description]
+      required: [id, bookMd5, format, addedAt, title, author, language, fileSize, detailUrl, coverUrl, publisher, year, description, descriptionSource]
       properties:
         id:
           type: integer
@@ -1422,10 +1422,13 @@ components:
           type: string
         description:
           type: string
+        descriptionSource:
+          type: string
+          description: Empty when no description is stored; otherwise annas-archive or openrouter.
 
     LibraryListResponse:
       type: object
-      required: [items, totalItems, page, pageSize, totalPages]
+      required: [items, totalItems, page, pageSize, totalPages, canRegenerate]
       properties:
         items:
           type: array
@@ -1440,6 +1443,9 @@ components:
           type: integer
         totalPages:
           type: integer
+        canRegenerate:
+          type: boolean
+          description: False when no OpenRouter key is configured, so the interface can hide the generate controls.
 
     ConversionStartedResponse:
       type: object
