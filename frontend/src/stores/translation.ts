@@ -103,7 +103,7 @@ export const useTranslationStore = defineStore('translation', () => {
   }
 
   async function readStatus(jobId: string) {
-    if (requests.has(jobId)) return
+    if (requests.has(jobId) || busyJobs.value.has(jobId)) return
     const request = Symbol(jobId)
     requests.set(jobId, request)
     try {
@@ -174,6 +174,7 @@ export const useTranslationStore = defineStore('translation', () => {
     const job = jobs.value.get(jobId)
     if (!job?.resumable || busyJobs.value.has(jobId)) return
     busyJobs.value.add(jobId)
+    stopPolling(jobId)
     jobErrors.value.delete(jobId)
     const currentGeneration = generation
     try {

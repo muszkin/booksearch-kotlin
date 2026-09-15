@@ -31,6 +31,11 @@ function handleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Tab') return
   const controls = Array.from(dialog.value?.querySelectorAll<HTMLElement>('*') ?? [])
     .filter((element) => element.tabIndex >= 0 && !element.hasAttribute('disabled'))
+  if (controls.length === 0) {
+    event.preventDefault()
+    heading.value?.focus()
+    return
+  }
   const first = controls?.[0]
   const last = controls?.[controls.length - 1]
   if (event.shiftKey && (document.activeElement === first || document.activeElement === heading.value)) {

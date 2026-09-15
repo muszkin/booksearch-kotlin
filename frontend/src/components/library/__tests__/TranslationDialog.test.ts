@@ -63,4 +63,15 @@ describe('TranslationDialog', () => {
     expect(document.activeElement).toBe(trigger)
     trigger.remove()
   })
+
+  it.each([false, true])('retains focus when starting disables every control (shiftKey=%s)', async (shiftKey) => {
+    const wrapper = render()
+    await wrapper.get('[data-testid="external-processing-confirmation"]').setValue(true)
+    ;(wrapper.get('[data-testid="translation-start-btn"]').element as HTMLElement).focus()
+    await wrapper.setProps({ starting: true })
+    const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+    wrapper.get('[role="dialog"]').element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get('h2').element)
+  })
 })

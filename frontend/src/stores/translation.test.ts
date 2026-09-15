@@ -162,6 +162,36 @@ describe('translation store', () => {
     expect(TranslationService.getTranslationStatus).not.toHaveBeenCalled()
   })
 
+  it('ignores a paused status response from before resume and keeps the new polling interval', async () => {
+    let resolveStatus!: (value: TranslationStatusResponse) => void
+    vi.mocked(TranslationService.getTranslationStatus).mockReturnValueOnce(new Promise<TranslationStatusResponse>((resolve) => { resolveStatus = resolve }) as ReturnType<typeof TranslationService.getTranslationStatus>)
+    const store = useTranslationStore()
+    const paused = { ...job, status: TranslationJobState.PAUSED, resumable: true }
+    store.jobs.set(job.jobId, paused)
+    const pendingStatus = store.refreshStatus(job.jobId)
+    await store.resume(job.jobId)
+    resolveStatus(paused)
+    await pendingStatus
+    expect(store.jobs.get(job.jobId)?.status).toBe(TranslationJobState.QUEUED)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledTimes(2)
+    expect(store.jobs.get(job.jobId)?.status).toBe(TranslationJobState.RUNNING)
+  })
+
+  it('does not begin a status read while resume is pending', async () => {
+    let resolveResume!: (value: Awaited<ReturnType<typeof TranslationService.resumeTranslation>>) => void
+    vi.mocked(TranslationService.resumeTranslation).mockReturnValueOnce(new Promise((resolve) => { resolveResume = resolve }) as ReturnType<typeof TranslationService.resumeTranslation>)
+    const store = useTranslationStore()
+    store.jobs.set(job.jobId, { ...job, status: TranslationJobState.PAUSED, resumable: true })
+    const pendingResume = store.resume(job.jobId)
+    await store.refreshStatus(job.jobId)
+    expect(TranslationService.getTranslationStatus).not.toHaveBeenCalled()
+    resolveResume({ jobId: job.jobId, status: TranslationJobState.QUEUED })
+    await pendingResume
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledOnce()
+  })
+
   it('cancels a queued job and stops polling', async () => {
     const store = useTranslationStore()
     await store.estimate(1)
