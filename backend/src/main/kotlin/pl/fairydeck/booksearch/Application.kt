@@ -36,6 +36,7 @@ import pl.fairydeck.booksearch.api.openApiRoutes
 import pl.fairydeck.booksearch.api.searchRoutes
 import pl.fairydeck.booksearch.api.logRoutes
 import pl.fairydeck.booksearch.api.settingsRoutes
+import pl.fairydeck.booksearch.api.translationRoutes
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
@@ -169,7 +170,7 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository)
+    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, translationService, openRouterClient)
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -194,7 +195,7 @@ private fun Application.configureDatabase(): DSLContext {
     }
 }
 
-private fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: String, jwtAudience: String) {
+internal fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: String, jwtAudience: String) {
     install(Authentication) {
         jwt("jwt") {
             verifier(
@@ -267,7 +268,7 @@ private fun Application.configureContentNegotiation() {
     }
 }
 
-private fun Application.configureStatusPages() {
+internal fun Application.configureStatusPages() {
     install(StatusPages) {
         exception<AuthenticationException> { call, cause ->
             call.respond(
@@ -332,12 +333,15 @@ private fun Application.configureRouting(
     activityLogService: ActivityLogService,
     downloadJobRepository: DownloadJobRepository,
     activityLogRepository: ActivityLogRepository,
-    requestLogRepository: RequestLogRepository
+    requestLogRepository: RequestLogRepository,
+    translationService: pl.fairydeck.booksearch.service.TranslationService,
+    openRouterClient: pl.fairydeck.booksearch.infrastructure.OpenRouterClient?
 ) {
     routing {
         healthRoutes()
         authRoutes(authService, systemConfigRepository)
-        adminRoutes(authService)
+        adminRoutes(authService, systemConfigRepository, openRouterClient)
+        translationRoutes(translationService, openRouterClient)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
         libraryRoutes(libraryService, activityLogService)
