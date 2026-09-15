@@ -8,9 +8,24 @@ import LibraryBookCard from '@/components/library/LibraryBookCard.vue'
 import LibraryBookCardSkeleton from '@/components/library/LibraryBookCardSkeleton.vue'
 import PaginationControls from '@/components/library/PaginationControls.vue'
 import { useLibraryStore } from '@/stores/library'
+import { useTranslationStore } from '@/stores/translation'
+import TranslationDialog from '@/components/library/TranslationDialog.vue'
+import TranslationProgress from '@/components/library/TranslationProgress.vue'
+import type { LibraryBook } from '@/api/generated'
 import apiClient from '@/api/client'
 
 const store = useLibraryStore()
+const translation = useTranslationStore()
+const translationBook = ref<LibraryBook | null>(null)
+
+function openTranslation(book: LibraryBook) {
+  translationBook.value = book
+  void translation.estimate(book.id)
+}
+
+async function startTranslation() {
+  if (translationBook.value && await translation.start(translationBook.value.id)) translationBook.value = null
+}
 const selectedIds = ref(new Set<number>())
 const deliveryLoading = reactive(new Map<number, boolean>())
 const backfilling = ref(false)
@@ -62,10 +77,12 @@ onMounted(() => {
   store.fetchLibrary(1)
   store.fetchDeviceSettings()
   store.fetchDeliveries()
+  void translation.restore()
 })
 
 onUnmounted(() => {
   store.cleanup()
+  translation.cleanup()
 })
 
 function handleRetry() {
@@ -133,7 +150,18 @@ function handleRemove(bookId: number) {
 <template>
   <PageHeader title="Library" />
 
+  <TranslationDialog
+    v-if="translationBook" :key="translationBook.id" :title="translationBook.title"
+    :estimate="translation.estimates.get(translationBook.id) ?? null" :loading="translation.loading"
+    :starting="translation.starting" :error="translation.error"
+    @start="startTranslation" @close="translationBook = null" @retry="translation.estimate(translationBook.id)"
+  />
+
   <div class="p-6">
+    <div v-for="[jobId, message] in [...translation.jobErrors].filter(([id]) => !translation.jobs.has(id))" :key="jobId" class="mb-4 space-y-2">
+      <AlertMessage variant="error" :message="message" />
+      <BaseButton variant="secondary" @click="translation.refreshStatus(jobId)">Retry restoring translation</BaseButton>
+    </div>
     <div class="mb-4 flex items-center gap-3 flex-wrap">
       <BaseButton
         data-testid="backfill-covers-btn"
@@ -192,11 +220,18 @@ function handleRemove(bookId: number) {
               :kindle-enabled="store.deviceSettings.kindle"
               :pocketbook-enabled="store.deviceSettings.pocketbook"
               :delivery-loading="deliveryLoading.get(book.id) ?? false"
+              :translation-active="['queued', 'running', 'paused'].includes(translation.jobForLibrary(book.id)?.status ?? '')"
               @download-file="handleDownloadFile(book.id)"
               @start-download="handleStartDownload(book.bookMd5)"
               @convert="handleConvert(book.id, $event)"
               @deliver="handleDeliver(book.id, $event)"
               @remove="handleRemove(book.id)"
+              @translate="openTranslation(book)"
+            />
+            <TranslationProgress
+              v-for="job in [translation.jobForLibrary(book.id)].filter((job) => !!job)" :key="job.jobId"
+              :job="job" :busy="translation.busyJobs.has(job.jobId)" :error="translation.jobErrors.get(job.jobId)"
+              @resume="translation.resume(job.jobId)" @cancel="translation.cancel(job.jobId)" @retry="translation.refreshStatus(job.jobId)"
             />
           </div>
         </div>

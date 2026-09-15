@@ -9,6 +9,7 @@ import UserTable from '@/components/admin/UserTable.vue'
 import InviteUserForm from '@/components/admin/InviteUserForm.vue'
 import ChangeUserPasswordModal from '@/components/admin/ChangeUserPasswordModal.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
+import TranslationModelSettings from '@/components/admin/TranslationModelSettings.vue'
 
 const adminStore = useAdminStore()
 const authStore = useAuthStore()
@@ -56,6 +57,7 @@ onMounted(() => {
   <PageHeader title="Administration" />
 
   <div class="space-y-8 p-6">
+    <TranslationModelSettings v-if="authStore.user?.isSuperAdmin && !authStore.isImpersonating" />
     <AlertMessage
       v-if="adminStore.error"
       variant="error"

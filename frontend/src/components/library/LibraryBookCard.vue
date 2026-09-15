@@ -19,6 +19,7 @@ const props = defineProps<{
   kindleEnabled: boolean
   pocketbookEnabled: boolean
   deliveryLoading?: boolean
+  translationActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   'convert': [targetFormat: string]
   'deliver': [device: string]
   'remove': []
+  'translate': []
 }>()
 
 const hasFile = computed(() => !!props.book.filePath)
@@ -135,6 +137,13 @@ const formattedDate = computed(() => {
     </div>
 
     <div class="flex items-center gap-2 px-4 py-3 border-t border-zinc-700 flex-wrap">
+      <BaseButton
+        v-if="hasFile && props.book.format.toLowerCase() === 'epub'"
+        data-testid="translate-btn" variant="secondary" class="text-xs px-3 py-1"
+        :disabled="props.translationActive" @click="emit('translate')"
+      >
+        Translate to Polish
+      </BaseButton>
       <BaseButton
         v-if="hasFile"
         data-testid="download-file-btn"

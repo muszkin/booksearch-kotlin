@@ -49,6 +49,22 @@ const defaultProps = {
 }
 
 describe('LibraryBookCard', () => {
+  it.each([
+    { format: 'epub', filePath: '/books/test.epub', visible: true },
+    { format: 'EPUB', filePath: '/books/test.epub', visible: true },
+    { format: 'epub', filePath: null, visible: false },
+    { format: 'pdf', filePath: '/books/test.pdf', visible: false },
+    { format: 'mobi', filePath: '/books/test.mobi', visible: false },
+  ])('offers translation only for local EPUBs: %j', async ({ format, filePath, visible }) => {
+    const wrapper = mount(LibraryBookCard, { props: { ...defaultProps, book: createBook({ format, filePath }) } })
+    const button = wrapper.find('[data-testid="translate-btn"]')
+    expect(button.exists()).toBe(visible)
+    if (visible) {
+      await button.trigger('click')
+      expect(wrapper.emitted('translate')).toHaveLength(1)
+    }
+  })
+
   it('renders book title, author, format badge, file size, and added date', () => {
     const wrapper = mount(LibraryBookCard, {
       props: defaultProps,
