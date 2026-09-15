@@ -17,6 +17,7 @@ frontend/dist/
 frontend/node_modules/
 node_modules/
 *.tsbuildinfo
+.worktrees/
 
 # Agent-pipeline runtime artifacts
 .ai/qa/artifacts_*/
