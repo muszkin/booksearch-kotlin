@@ -2,6 +2,7 @@ package pl.fairydeck.booksearch.infrastructure
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
@@ -34,14 +35,15 @@ class OpenRouterClientTest {
     fun `translate sends the requested model without fallback`() = runBlocking {
         var requestBody = ""
         val engine = MockEngine { request ->
-            assertEquals(HttpMethod.Post, request.method)
-            assertEquals("/api/v1/chat/completions", request.url.encodedPath)
-            requestBody = request.body.toByteArray().decodeToString()
-            respond(
-                content = ByteReadChannel("""{"choices":[{"message":{"content":"Polski tekst"}}]}"""),
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
-            )
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> {
+                    assertEquals(HttpMethod.Post, request.method)
+                    requestBody = request.body.toByteArray().decodeToString()
+                    respondJson("""{"choices":[{"message":{"content":"Polski tekst"}}]}""")
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
         }
         val client = OpenRouterClient(testConfig(), HttpClient(engine))
 
@@ -56,12 +58,38 @@ class OpenRouterClientTest {
 
     @Test
     fun `error omits prompt and key`() = runBlocking {
-        val client = clientResponding("{\"error\":{\"message\":\"upstream failure\"}}", HttpStatusCode.BadRequest)
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> respondJson("{\"error\":{\"message\":\"upstream failure\"}}", HttpStatusCode.BadRequest)
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+        }))
 
         val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "secret prose") } }
 
         assertFalse(error.message.orEmpty().contains("secret prose"))
         assertFalse(error.message.orEmpty().contains("test-key"))
+        client.close()
+    }
+
+    @Test
+    fun `translate rejects a paid model before completion`() = runBlocking {
+        var completionRequested = false
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> {
+                    completionRequested = true
+                    respondJson("""{"choices":[{"message":{"content":"should not happen"}}]}""")
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+        }))
+
+        assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("paid-prompt", "secret prose") } }
+        assertFalse(completionRequested)
+
         client.close()
     }
 
@@ -77,6 +105,12 @@ class OpenRouterClientTest {
             })
         )
 
+    private fun MockRequestHandleScope.respondJson(body: String, status: HttpStatusCode = HttpStatusCode.OK) = respond(
+        content = ByteReadChannel(body),
+        status = status,
+        headers = headersOf(HttpHeaders.ContentType, "application/json")
+    )
+
     private fun testConfig() = OpenRouterConfig(apiKey = "test-key", baseUrl = "https://openrouter.test")
 
     private fun modelsResponse() = """
@@ -84,6 +118,10 @@ class OpenRouterClientTest {
           "data": [
             {"id":"free","name":"Free text","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0","request":"0"}},
             {"id":"paid","name":"Paid text","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0.0001","request":"0"}},
+            {"id":"paid-prompt","name":"Paid prompt","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0.0001","completion":"0","request":"0"}},
+            {"id":"paid-request","name":"Paid request","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0","request":"0.0001"}},
+            {"id":"missing-price","name":"Missing price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0"}},
+            {"id":"invalid-price","name":"Invalid price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"free","completion":"0","request":"0"}},
             {"id":"image","name":"Free image","architecture":{"output_modalities":["image"]},"pricing":{"prompt":"0","completion":"0","request":"0"}}
           ]
         }

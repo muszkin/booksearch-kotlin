@@ -25,22 +25,16 @@ class OpenRouterClient(
     private val httpClient = httpClientOverride ?: HttpClient(OkHttp)
 
     suspend fun listFreeTextModels(): List<OpenRouterModel> {
-        val response = request {
-            get("${config.baseUrl.trimEnd('/')}/api/v1/models") {
-                withAuth()
-            }
-        }
-        if (!response.status.isSuccess()) {
-            throw OpenRouterException("OpenRouter model listing failed with status ${response.status.value}")
-        }
-
-        val models = decode<OpenRouterModelsResponse>(response.bodyAsText())
-        return models.data
-            .filter { it.architecture.outputModalities.contains("text") && it.pricing.isFreeTextRequest() }
+        return fetchModels()
+            .filter { it.isFreeTextModel() }
             .map { OpenRouterModel(it.id, it.name) }
     }
 
     suspend fun translate(modelId: String, prompt: String): OpenRouterCompletion {
+        if (fetchModels().none { it.id == modelId && it.isFreeTextModel() }) {
+            throw OpenRouterException("Selected OpenRouter model is not currently free for text requests")
+        }
+
         val response = request {
             post("${config.baseUrl.trimEnd('/')}/api/v1/chat/completions") {
                 withAuth()
@@ -80,6 +74,18 @@ class OpenRouterClient(
             throw OpenRouterException("OpenRouter returned an invalid response")
         }
 
+    private suspend fun fetchModels(): List<OpenRouterModelResponse> {
+        val response = request {
+            get("${config.baseUrl.trimEnd('/')}/api/v1/models") {
+                withAuth()
+            }
+        }
+        if (!response.status.isSuccess()) {
+            throw OpenRouterException("OpenRouter model listing failed with status ${response.status.value}")
+        }
+        return decode<OpenRouterModelsResponse>(response.bodyAsText()).data
+    }
+
     private fun io.ktor.client.request.HttpRequestBuilder.withAuth() {
         header(HttpHeaders.Authorization, "Bearer ${config.apiKey}")
         accept(ContentType.Application.Json)
@@ -94,7 +100,10 @@ class OpenRouterClient(
         val name: String = "",
         val architecture: OpenRouterArchitecture = OpenRouterArchitecture(),
         val pricing: OpenRouterPricing = OpenRouterPricing()
-    )
+    ) {
+        fun isFreeTextModel(): Boolean =
+            architecture.outputModalities.contains("text") && pricing.isFreeTextRequest()
+    }
 
     @Serializable
     private data class OpenRouterArchitecture(
