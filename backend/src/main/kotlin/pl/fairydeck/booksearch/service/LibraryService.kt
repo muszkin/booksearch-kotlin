@@ -14,10 +14,54 @@ class LibraryService(
     private val userLibraryRepository: UserLibraryRepository,
     private val bookRepository: BookRepository,
     private val scraperConfig: ScraperConfig,
-    private val metadataService: MetadataService? = null
+    private val metadataService: MetadataService? = null,
+    private val dsl: org.jooq.DSLContext? = null
 ) {
 
     private val logger = LoggerFactory.getLogger(LibraryService::class.java)
+
+    fun translationSource(userId: Int, entryId: Int): TranslationSource {
+        val file = getFileForEntry(userId, entryId)
+        val entry = userLibraryRepository.findByIdAndUserId(entryId, userId)
+            ?: throw NotFoundException("Library entry not found")
+        val book = bookRepository.findByMd5(entry.bookMd5!!) ?: throw NotFoundException("Book not found")
+        if (!file.format.equals("epub", ignoreCase = true) || !isEnglish(book.language.orEmpty())) {
+            throw pl.fairydeck.booksearch.api.ValidationException("Translation requires an English EPUB")
+        }
+        return TranslationSource(entry.bookMd5!!, File(file.absolutePath))
+    }
+
+    /** The complete file is placed before the DB transaction; rollback can leave only a private orphan file. */
+    fun publishTranslation(userId: Int, sourceEntryId: Int, jobId: String, output: File): Int {
+        val source = translationSource(userId, sourceEntryId)
+        val sourceBook = bookRepository.findByMd5(source.bookMd5)!!
+        val database = dsl ?: error("Translation publication is not configured")
+        val md5 = output.inputStream().use { stream ->
+            val digest = java.security.MessageDigest.getInstance("MD5")
+            val bytes = ByteArray(8192)
+            while (true) { val count = stream.read(bytes); if (count < 0) break; digest.update(bytes, 0, count) }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        val target = File(File(scraperConfig.dataPath, userId.toString()), "$md5.epub")
+        target.parentFile.mkdirs()
+        if (!target.exists()) java.nio.file.Files.move(output.toPath(), target.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        return database.transactionResult { configuration ->
+            val tx = org.jooq.impl.DSL.using(configuration)
+            val books = pl.fairydeck.booksearch.jooq.generated.tables.references.BOOKS
+            tx.insertInto(books).set(books.MD5, md5)
+                .set(books.TITLE, "${sourceBook.title.orEmpty()} (tłumaczenie polskie)")
+                .set(books.AUTHOR, sourceBook.author).set(books.LANGUAGE, "pl").set(books.FORMAT, "epub")
+                .set(books.FILE_SIZE, target.length().toString()).set(books.PUBLISHER, sourceBook.publisher)
+                .set(books.YEAR, sourceBook.year).set(books.DESCRIPTION, sourceBook.description)
+                .set(books.INDEXED_AT, java.time.Instant.now().toString())
+                .onConflict(books.MD5).doNothing().execute()
+            val library = UserLibraryRepository(tx)
+            val entry = library.findOrCreate(userId, md5, "epub")
+            library.updateFilePath(userId, md5, "epub", "$userId/$md5.epub")
+            pl.fairydeck.booksearch.repository.TranslationJobRepository(tx).markCompleted(jobId, entry.id!!)
+            entry.id!!
+        }
+    }
 
     fun addToLibrary(userId: Int, bookMd5: String, format: String): LibraryBook {
         val book = bookRepository.findByMd5(bookMd5)
@@ -238,3 +282,7 @@ data class LibraryFileInfo(
     val title: String,
     val format: String
 )
+
+data class TranslationSource(val bookMd5: String, val file: File)
+
+internal fun isEnglish(language: String): Boolean = language.trim().lowercase().let { it in setOf("en", "eng", "english") || it.startsWith("en-") }

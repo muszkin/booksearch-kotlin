@@ -130,7 +130,18 @@ fun Application.module() {
     val userSettingsRepository = UserSettingsRepository(dsl)
     val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
     val metadataService = MetadataService()
-    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService)
+    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService, dsl)
+    val translationJobs = pl.fairydeck.booksearch.repository.TranslationJobRepository(dsl)
+    translationJobs.pauseInterruptedJobs()
+    val openRouterClient = if (System.getenv("OPENROUTER_API_KEY").isNullOrBlank()) null else
+        pl.fairydeck.booksearch.infrastructure.OpenRouterClient(pl.fairydeck.booksearch.infrastructure.OpenRouterConfig.fromEnvironment(environment))
+    val translationService = pl.fairydeck.booksearch.service.TranslationService(
+        translationJobs, pl.fairydeck.booksearch.repository.TranslationChapterRepository(dsl), systemConfigRepository,
+        libraryService, pl.fairydeck.booksearch.service.EpubTranslationWorkspace(java.nio.file.Path.of(scraperConfig.dataPath, ".translation-jobs")),
+        openRouterClient, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO)
+    )
+    attributes.put(translationServiceKey, translationService)
+    monitor.subscribe(ApplicationStopped) { openRouterClient?.close() }
     val downloadJobRepository = DownloadJobRepository(dsl)
     val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
     val downloadService = DownloadService(
@@ -353,3 +364,5 @@ private fun Application.configureRouting(
 
 @Serializable
 data class ErrorResponse(val status: Int, val message: String)
+
+val translationServiceKey = io.ktor.util.AttributeKey<pl.fairydeck.booksearch.service.TranslationService>("TranslationService")

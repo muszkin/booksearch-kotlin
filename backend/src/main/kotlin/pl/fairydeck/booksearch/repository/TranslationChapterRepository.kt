@@ -60,6 +60,16 @@ class TranslationChapterRepository(private val dsl: DSLContext) {
             .execute()
     }
 
+    fun addUsage(jobId: String, chapterIndex: Int, inputTokens: Int, outputTokens: Int) {
+        dsl.update(TRANSLATION_CHAPTERS)
+            .set(TRANSLATION_CHAPTERS.INPUT_TOKENS, TRANSLATION_CHAPTERS.INPUT_TOKENS.plus(inputTokens))
+            .set(TRANSLATION_CHAPTERS.OUTPUT_TOKENS, TRANSLATION_CHAPTERS.OUTPUT_TOKENS.plus(outputTokens))
+            .set(TRANSLATION_CHAPTERS.UPDATED_AT, now())
+            .where(TRANSLATION_CHAPTERS.JOB_ID.eq(jobId))
+            .and(TRANSLATION_CHAPTERS.CHAPTER_INDEX.eq(chapterIndex))
+            .execute()
+    }
+
     private fun now(): String = Instant.now().toString()
 
     companion object {

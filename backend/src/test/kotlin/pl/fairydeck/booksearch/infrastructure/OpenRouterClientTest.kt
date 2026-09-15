@@ -22,6 +22,22 @@ import org.junit.jupiter.api.Test
 
 class OpenRouterClientTest {
 
+    @Test fun `completion returns actual usage and rate limit is retryable`() = runBlocking {
+        var limited = false
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else if (limited) respondJson("{}", HttpStatusCode.TooManyRequests)
+            else respondJson("""{"choices":[{"message":{"content":"translated"}}],"usage":{"prompt_tokens":23,"completion_tokens":17}}""")
+        }))
+        val result = client.translate("free", "source")
+        assertEquals(23, result.inputTokens)
+        assertEquals(17, result.outputTokens)
+        limited = true
+        val failure = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "source") } }
+        assertEquals(true, failure.retryable)
+        client.close()
+    }
+
     @Test
     fun `filters paid and non-text models`() = runBlocking {
         val client = clientResponding(modelsResponse())

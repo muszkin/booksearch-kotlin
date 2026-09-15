@@ -16,13 +16,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.math.BigDecimal
+import kotlinx.coroutines.CancellationException
+import io.ktor.client.plugins.HttpTimeout
 
 class OpenRouterClient(
     private val config: OpenRouterConfig,
     private val httpClientOverride: HttpClient? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val httpClient = httpClientOverride ?: HttpClient(OkHttp)
+    private val httpClient = httpClientOverride ?: HttpClient(OkHttp) { install(HttpTimeout) { requestTimeoutMillis = 120_000 } }
 
     suspend fun listFreeTextModels(): List<OpenRouterModel> {
         return fetchModels()
@@ -32,7 +34,7 @@ class OpenRouterClient(
 
     suspend fun translate(modelId: String, prompt: String): OpenRouterCompletion {
         if (fetchModels().none { it.id == modelId && it.isFreeTextModel() }) {
-            throw OpenRouterException("Selected OpenRouter model is not currently free for text requests")
+            throw OpenRouterException("Selected OpenRouter model is not currently free for text requests", code = "model_no_longer_free")
         }
 
         val response = request {
@@ -47,13 +49,13 @@ class OpenRouterClient(
             }
         }
         if (!response.status.isSuccess()) {
-            throw OpenRouterException("OpenRouter completion failed with status ${response.status.value}")
+            throw responseError(response.status.value)
         }
 
         val completion = decode<OpenRouterCompletionResponse>(response.bodyAsText())
         val content = completion.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
             ?: throw OpenRouterException("OpenRouter completion response did not contain text")
-        return OpenRouterCompletion(content)
+        return OpenRouterCompletion(content, completion.usage?.promptTokens ?: 0, completion.usage?.completionTokens ?: 0)
     }
 
     fun close() {
@@ -63,8 +65,9 @@ class OpenRouterClient(
     private suspend fun request(block: suspend HttpClient.() -> io.ktor.client.statement.HttpResponse): io.ktor.client.statement.HttpResponse =
         try {
             httpClient.block()
+        } catch (e: CancellationException) { throw e
         } catch (_: Exception) {
-            throw OpenRouterException("OpenRouter request failed")
+            throw OpenRouterException("OpenRouter request failed", retryable = true)
         }
 
     private inline fun <reified T> decode(body: String): T =
@@ -81,7 +84,7 @@ class OpenRouterClient(
             }
         }
         if (!response.status.isSuccess()) {
-            throw OpenRouterException("OpenRouter model listing failed with status ${response.status.value}")
+            throw responseError(response.status.value)
         }
         return decode<OpenRouterModelsResponse>(response.bodyAsText()).data
     }
@@ -137,7 +140,12 @@ class OpenRouterClient(
     private data class OpenRouterMessage(val role: String = "user", val content: String)
 
     @Serializable
-    private data class OpenRouterCompletionResponse(val choices: List<OpenRouterChoice> = emptyList())
+    private data class OpenRouterCompletionResponse(val choices: List<OpenRouterChoice> = emptyList(), val usage: OpenRouterUsage? = null)
+
+    @Serializable
+    private data class OpenRouterUsage(@SerialName("prompt_tokens") val promptTokens: Int = 0, @SerialName("completion_tokens") val completionTokens: Int = 0)
+
+    private fun responseError(status: Int) = OpenRouterException("OpenRouter request failed with status $status", retryable = status == 429 || status in 500..599)
 
     @Serializable
     private data class OpenRouterChoice(val message: OpenRouterMessage? = null)
@@ -145,6 +153,6 @@ class OpenRouterClient(
 
 data class OpenRouterModel(val id: String, val name: String)
 
-data class OpenRouterCompletion(val content: String)
+data class OpenRouterCompletion(val content: String, val inputTokens: Int = 0, val outputTokens: Int = 0)
 
-class OpenRouterException(message: String) : RuntimeException(message)
+class OpenRouterException(message: String, val retryable: Boolean = false, val code: String = "translation_request_failed") : RuntimeException(message)
