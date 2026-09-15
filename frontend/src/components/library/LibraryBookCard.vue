@@ -19,6 +19,7 @@ const props = defineProps<{
   kindleEnabled: boolean
   pocketbookEnabled: boolean
   deliveryLoading?: boolean
+  translationActive?: boolean
   descriptionLoading?: boolean
   descriptionMissing?: boolean
   canRegenerate?: boolean
@@ -30,41 +31,20 @@ const emit = defineEmits<{
   'convert': [targetFormat: string]
   'deliver': [device: string]
   'remove': []
+  'translate': []
   'regenerate-description': []
 }>()
 
 const hasFile = computed(() => !!props.book.filePath)
-
-/**
- * A generated description is labelled. Unlabelled guesswork sitting beside real publisher
- * copy is indistinguishable from it.
- */
 const isGenerated = computed(() => props.book.descriptionSource === 'openrouter')
-
 const hasDescription = computed(() => props.book.description.trim().length > 0)
-
-const showDescription = computed(
-  () => hasDescription.value || props.descriptionLoading === true || props.descriptionMissing === true,
-)
+const showDescription = computed(() => hasDescription.value || props.descriptionLoading === true || props.descriptionMissing === true)
 
 const isDownloadActive = computed(() => {
   if (!props.downloadStatus) return false
-  return !['completed', 'failed', 'cancelled'].includes(props.downloadStatus.status)
-})
-
-const showDownloadStatus = computed(() => {
-  if (!props.downloadStatus) return false
-  return !hasFile.value
-})
-
-const downloadAvailabilityNote = computed(() => {
-  if (props.downloadStatus?.status === 'failed') {
-    return 'Download failed. Retry before converting or sending this book.'
-  }
-  if (['completed', 'cancelled'].includes(props.downloadStatus?.status ?? '')) {
-    return 'The file is not available. Retry the download to unlock file actions.'
-  }
-  return 'The book is still downloading. File actions will unlock when it is ready.'
+  const terminalWithFile = props.downloadStatus.status === 'completed' && hasFile.value
+  const failed = props.downloadStatus.status === 'failed'
+  return !terminalWithFile && !failed
 })
 
 const isConversionActive = computed(() => {
@@ -146,7 +126,7 @@ const formattedDate = computed(() => {
           </span>
         </div>
 
-        <div v-if="showDownloadStatus && downloadStatus" class="mt-3">
+        <div v-if="isDownloadActive && downloadStatus" class="mt-3">
           <DownloadProgressBar
             :status="downloadStatus.status"
             :progress="downloadStatus.progress"
@@ -163,53 +143,26 @@ const formattedDate = computed(() => {
       </div>
     </div>
 
-    <div
-      v-if="showDescription"
-      data-testid="description-body"
-      class="px-4 pb-4 text-sm text-zinc-300"
-      :aria-busy="props.descriptionLoading === true"
-    >
-      <p v-if="!hasDescription && props.descriptionLoading" class="text-zinc-500">
-        Looking for a description…
-      </p>
-
-      <p v-else-if="!hasDescription" class="text-zinc-500">
-        No description available for this book.
-      </p>
-
+    <div v-if="showDescription" class="px-4 pb-4 text-sm text-zinc-300" :aria-busy="props.descriptionLoading === true">
+      <p v-if="!hasDescription && props.descriptionLoading" class="text-zinc-500">Looking for a description…</p>
+      <p v-else-if="!hasDescription" class="text-zinc-500">No description available for this book.</p>
       <template v-else>
-        <p
-          v-if="isGenerated"
-          data-testid="description-generated-label"
-          class="mb-1 text-xs text-amber-400"
-        >
-          AI-generated summary — may be inaccurate
-        </p>
+        <p v-if="isGenerated" class="mb-1 text-xs text-amber-400">AI-generated summary — may be inaccurate</p>
         <p class="whitespace-pre-line">{{ props.book.description }}</p>
       </template>
-
-      <button
-        v-if="props.canRegenerate"
-        type="button"
-        data-testid="description-regenerate"
-        title="Replace the stored description with a freshly generated one, for everyone"
-        class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200 disabled:opacity-50"
-        :disabled="props.descriptionLoading"
-        @click="emit('regenerate-description')"
-      >
+      <button v-if="props.canRegenerate" type="button" class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200 disabled:opacity-50" :disabled="props.descriptionLoading" @click="emit('regenerate-description')">
         {{ hasDescription ? 'Wrong description? Regenerate with AI' : 'Generate one with AI' }}
       </button>
     </div>
 
     <div class="flex items-center gap-2 px-4 py-3 border-t border-zinc-700 flex-wrap">
-      <p
-        v-if="!hasFile"
-        data-testid="download-pending-note"
-        class="basis-full text-xs text-zinc-400"
+      <BaseButton
+        v-if="hasFile && props.book.format.toLowerCase() === 'epub'"
+        data-testid="translate-btn" variant="secondary" class="text-xs px-3 py-1"
+        :disabled="props.translationActive" @click="emit('translate')"
       >
-        {{ downloadAvailabilityNote }}
-      </p>
-
+        Translate to Polish
+      </BaseButton>
       <BaseButton
         v-if="hasFile"
         data-testid="download-file-btn"
@@ -235,8 +188,7 @@ const formattedDate = computed(() => {
           :data-testid="`convert-${format}-btn`"
           variant="secondary"
           class="text-xs px-3 py-1"
-          :disabled="!hasFile || isConversionActive"
-          :title="hasFile ? undefined : 'Available after download completes'"
+          :disabled="isConversionActive"
           @click="emit('convert', format)"
         >
           To {{ format.toUpperCase() }}
@@ -249,8 +201,7 @@ const formattedDate = computed(() => {
         variant="ghost"
         class="text-xs px-3 py-1"
         :loading="props.deliveryLoading"
-        :disabled="!hasFile || props.deliveryLoading"
-        :title="hasFile ? undefined : 'Available after download completes'"
+        :disabled="props.deliveryLoading"
         @click="emit('deliver', 'kindle')"
       >
         Send to Kindle
@@ -262,8 +213,7 @@ const formattedDate = computed(() => {
         variant="ghost"
         class="text-xs px-3 py-1"
         :loading="props.deliveryLoading"
-        :disabled="!hasFile || props.deliveryLoading"
-        :title="hasFile ? undefined : 'Available after download completes'"
+        :disabled="props.deliveryLoading"
         @click="emit('deliver', 'pocketbook')"
       >
         Send to PocketBook

@@ -40,3 +40,4 @@ retention:
 openrouter:
   apiKey: "$OPENROUTER_API_KEY:"
   model: "$OPENROUTER_MODEL:openrouter/auto"
+  baseUrl: "$OPENROUTER_BASE_URL:https://openrouter.ai"

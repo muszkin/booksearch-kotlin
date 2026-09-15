@@ -74,7 +74,7 @@ describe('AdminView — impersonation integration', () => {
     authStore.startImpersonation = vi.fn().mockResolvedValue(undefined)
 
     const wrapper = mount(AdminView, {
-      global: { plugins: [router] },
+      global: { plugins: [router], stubs: { TranslationModelSettings: true } },
     })
     await flushPromises()
 

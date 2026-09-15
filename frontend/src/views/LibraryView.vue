@@ -8,9 +8,24 @@ import LibraryBookCard from '@/components/library/LibraryBookCard.vue'
 import LibraryBookCardSkeleton from '@/components/library/LibraryBookCardSkeleton.vue'
 import PaginationControls from '@/components/library/PaginationControls.vue'
 import { useLibraryStore } from '@/stores/library'
+import { useTranslationStore } from '@/stores/translation'
+import TranslationDialog from '@/components/library/TranslationDialog.vue'
+import TranslationProgress from '@/components/library/TranslationProgress.vue'
+import type { LibraryBook } from '@/api/generated'
 import apiClient from '@/api/client'
 
 const store = useLibraryStore()
+const translation = useTranslationStore()
+const translationBook = ref<LibraryBook | null>(null)
+
+function openTranslation(book: LibraryBook) {
+  translationBook.value = book
+  void translation.estimate(book.id)
+}
+
+async function startTranslation() {
+  if (translationBook.value && await translation.start(translationBook.value.id)) translationBook.value = null
+}
 const selectedIds = ref(new Set<number>())
 const deliveryLoading = reactive(new Map<number, boolean>())
 const backfilling = ref(false)
@@ -19,8 +34,7 @@ const backfillMessage = ref<string | null>(null)
 const hasSelection = computed(() => selectedIds.value.size > 0)
 const selectionCount = computed(() => selectedIds.value.size)
 const allSelected = computed(() =>
-  store.books.some((book) => !!book.filePath) &&
-  store.books.filter((book) => !!book.filePath).every((book) => selectedIds.value.has(book.id)),
+  store.books.length > 0 && store.books.every((b) => selectedIds.value.has(b.id)),
 )
 
 function toggleSelect(bookId: number) {
@@ -37,9 +51,7 @@ function toggleSelectAll() {
   if (allSelected.value) {
     selectedIds.value = new Set()
   } else {
-    selectedIds.value = new Set(
-      store.books.filter((book) => !!book.filePath).map((book) => book.id),
-    )
+    selectedIds.value = new Set(store.books.map((b) => b.id))
   }
 }
 
@@ -61,25 +73,26 @@ async function handleBatchDownload() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(async () => {
-  await store.fetchLibrary(1)
+onMounted(() => {
+  store.fetchLibrary(1)
   store.resolveMissingDescriptions()
-  await store.fetchDownloadStatuses()
   store.fetchDeviceSettings()
   store.fetchDeliveries()
+  void translation.restore()
 })
 
 onUnmounted(() => {
   store.cleanup()
+  translation.cleanup()
 })
 
-async function handleRetry() {
-  await store.fetchLibrary(store.pagination.page)
+function handleRetry() {
+  store.fetchLibrary(store.pagination.page)
   store.resolveMissingDescriptions()
 }
 
-async function handlePageChange(page: number) {
-  await store.fetchLibrary(page)
+function handlePageChange(page: number) {
+  store.fetchLibrary(page)
   store.resolveMissingDescriptions()
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -144,7 +157,22 @@ function handleRemove(bookId: number) {
 <template>
   <PageHeader title="Library" />
 
+  <TranslationDialog
+    v-if="translationBook" :key="translationBook.id" :title="translationBook.title"
+    :estimate="translation.estimates.get(translationBook.id) ?? null" :loading="translation.loading"
+    :starting="translation.starting" :error="translation.error"
+    @start="startTranslation" @close="translationBook = null" @retry="translation.estimate(translationBook.id)"
+  />
+
   <div class="p-6">
+    <div v-if="translation.discoveryError" class="mb-4 space-y-2">
+      <AlertMessage variant="error" :message="translation.discoveryError" />
+      <BaseButton variant="secondary" :loading="translation.restoring" @click="translation.restore()">Retry restoring translations</BaseButton>
+    </div>
+    <div v-for="[jobId, message] in [...translation.jobErrors].filter(([id]) => !translation.jobs.has(id))" :key="jobId" class="mb-4 space-y-2">
+      <AlertMessage variant="error" :message="message" />
+      <BaseButton variant="secondary" @click="translation.refreshStatus(jobId)">Retry restoring translation</BaseButton>
+    </div>
     <div class="mb-4 flex items-center gap-3 flex-wrap">
       <BaseButton
         data-testid="backfill-covers-btn"
@@ -189,8 +217,6 @@ function handleRemove(bookId: number) {
               type="checkbox"
               data-testid="library-select-checkbox"
               :checked="selectedIds.has(book.id)"
-              :disabled="!book.filePath"
-              :title="book.filePath ? `Select ${book.title}` : 'Available after download completes'"
               class="w-5 h-5 rounded border-zinc-600 bg-zinc-700 text-violet-400 focus:ring-violet-400 focus:ring-offset-zinc-900"
               :aria-label="`Select ${book.title}`"
               @change="toggleSelect(book.id)"
@@ -205,15 +231,22 @@ function handleRemove(bookId: number) {
               :kindle-enabled="store.deviceSettings.kindle"
               :pocketbook-enabled="store.deviceSettings.pocketbook"
               :delivery-loading="deliveryLoading.get(book.id) ?? false"
+              :translation-active="translation.restoring || !!translation.discoveryError || ['queued', 'running', 'paused'].includes(translation.jobForLibrary(book.id)?.status ?? '')"
               :description-loading="store.isDescriptionLoading(book.bookMd5)"
               :description-missing="store.isDescriptionMissing(book.bookMd5)"
               :can-regenerate="store.canRegenerate"
-              @regenerate-description="handleRegenerateDescription(book.bookMd5)"
               @download-file="handleDownloadFile(book.id)"
               @start-download="handleStartDownload(book.bookMd5)"
               @convert="handleConvert(book.id, $event)"
               @deliver="handleDeliver(book.id, $event)"
               @remove="handleRemove(book.id)"
+              @translate="openTranslation(book)"
+              @regenerate-description="handleRegenerateDescription(book.bookMd5)"
+            />
+            <TranslationProgress
+              v-for="job in [translation.jobForLibrary(book.id)].filter((job) => !!job)" :key="job.jobId"
+              :job="job" :busy="translation.busyJobs.has(job.jobId)" :error="translation.jobErrors.get(job.jobId)"
+              @resume="translation.resume(job.jobId)" @cancel="translation.cancel(job.jobId)" @retry="translation.refreshStatus(job.jobId)"
             />
           </div>
         </div>

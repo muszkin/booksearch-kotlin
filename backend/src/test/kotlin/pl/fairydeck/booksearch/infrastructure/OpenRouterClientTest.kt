@@ -4,153 +4,143 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.ktor.client.request.forms.*
-import io.ktor.content.*
-import io.ktor.http.content.TextContent
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class OpenRouterClientTest {
 
-    @Test
-    fun isDisabledWhenNoApiKeyIsConfigured() = runBlocking {
-        var called = false
-        val engine = MockEngine { called = true; respondCompletion("anything") }
-        val client = OpenRouterClient(config(apiKey = null), HttpClient(engine)) { settings() }
-
-        assertFalse(client.isConfigured)
-        assertNull(client.describeBook("Solaris", "Stanisław Lem"))
-        assertFalse(called, "no request may be made without a key")
+    @Test fun `completion returns actual usage and rate limit is retryable`() = runBlocking {
+        var limited = false
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else if (limited) respondJson("{}", HttpStatusCode.TooManyRequests)
+            else respondJson("""{"choices":[{"message":{"content":"translated"}}],"usage":{"prompt_tokens":23,"completion_tokens":17}}""")
+        }))
+        val result = client.translate("free", "source")
+        assertEquals(23, result.inputTokens)
+        assertEquals(17, result.outputTokens)
+        limited = true
+        val failure = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "source") } }
+        assertEquals(true, failure.retryable)
+        client.close()
     }
 
     @Test
-    fun returnsTheGeneratedDescription() = runBlocking {
-        val engine = MockEngine { respondCompletion(REAL_DESCRIPTION) }
+    fun `filters paid and non-text models`() = runBlocking {
+        val client = clientResponding(modelsResponse())
 
-        val summary = OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem")
+        assertEquals(listOf("free"), client.listFreeTextModels().map { it.id })
 
-        assertEquals(REAL_DESCRIPTION, summary)
+        client.close()
     }
 
     @Test
-    fun sendsTheConfiguredModelAndBearerToken() = runBlocking {
-        var body = ""
-        var auth: String? = null
+    fun `translate sends the requested model without fallback`() = runBlocking {
+        var requestBody = ""
         val engine = MockEngine { request ->
-            auth = request.headers[HttpHeaders.Authorization]
-            body = (request.body as TextContent).text
-            respondCompletion("ok")
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> {
+                    assertEquals(HttpMethod.Post, request.method)
+                    requestBody = request.body.toByteArray().decodeToString()
+                    respondJson("""{"choices":[{"message":{"content":"Polski tekst"}}]}""")
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
         }
+        val client = OpenRouterClient(testConfig(), HttpClient(engine))
 
-        OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem")
+        assertEquals("Polski tekst", client.translate("free", "English text").content)
+        val body = Json.parseToJsonElement(requestBody).jsonObject
+        assertEquals("free", body["model"]?.jsonPrimitive?.content)
+        assertEquals(Json.parseToJsonElement("""[{"role":"user","content":"English text"}]"""), body["messages"])
+        assertFalse(body.containsKey("fallback_models"))
+        assertEquals(false, body["provider"]?.jsonObject?.get("allow_fallbacks")?.jsonPrimitive?.boolean)
 
-        assertEquals("Bearer test-key", auth)
-        assertTrue(body.contains("openrouter/auto"), "expected the configured model in $body")
-        assertTrue(body.contains("Solaris"))
-        assertTrue(body.contains("Lem"))
+        client.close()
     }
 
     @Test
-    fun treatsTheAgreedUnknownMarkerAsNoAnswer() = runBlocking {
-        val engine = MockEngine { respondCompletion("UNKNOWN") }
+    fun `error omits prompt and key`() = runBlocking {
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> respondJson("{\"error\":{\"message\":\"upstream failure\"}}", HttpStatusCode.BadRequest)
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+        }))
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Obscure", "Nobody"))
+        val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "secret prose") } }
+
+        assertFalse(error.message.orEmpty().contains("secret prose"))
+        assertFalse(error.message.orEmpty().contains("test-key"))
+        client.close()
     }
 
     @Test
-    fun rejectsAnAnswerThatAdmitsUncertainty() = runBlocking {
-        val engine = MockEngine {
-            respondCompletion("I don't have any information about this book.")
-        }
+    fun `translate rejects a paid model before completion`() = runBlocking {
+        var completionRequested = false
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/api/v1/models" -> respondJson(modelsResponse())
+                "/api/v1/chat/completions" -> {
+                    completionRequested = true
+                    respondJson("""{"choices":[{"message":{"content":"should not happen"}}]}""")
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+        }))
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Obscure", "Nobody"))
+        assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("paid-prompt", "secret prose") } }
+        assertFalse(completionRequested)
+
+        client.close()
     }
 
-    @Test
-    fun rejectsAnAnswerTooShortToBeADescription() = runBlocking {
-        val engine = MockEngine { respondCompletion("A novel.") }
+    private fun clientResponding(body: String, status: HttpStatusCode = HttpStatusCode.OK): OpenRouterClient =
+        OpenRouterClient(
+            testConfig(),
+            HttpClient(MockEngine {
+                respond(
+                    content = ByteReadChannel(body),
+                    status = status,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            })
+        )
 
-        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem"))
-    }
-
-    @Test
-    fun staysQuietWhenTheServiceFails() = runBlocking {
-        val engine = MockEngine { respond("upstream exploded", HttpStatusCode.ServiceUnavailable) }
-
-        assertNull(OpenRouterClient(config(), HttpClient(engine)) { settings() }.describeBook("Solaris", "Lem"))
-    }
-
-    private fun MockRequestHandleScope.respondCompletion(content: String) = respond(
-        content = """
-            {"model":"anthropic/claude-sonnet-4.5",
-             "choices":[{"message":{"role":"assistant","content":${quote(content)}}}]}
-        """.trimIndent(),
-        status = HttpStatusCode.OK,
+    private fun MockRequestHandleScope.respondJson(body: String, status: HttpStatusCode = HttpStatusCode.OK) = respond(
+        content = ByteReadChannel(body),
+        status = status,
         headers = headersOf(HttpHeaders.ContentType, "application/json")
     )
 
-    private fun quote(value: String) = "\"" + value.replace("\"", "\\\"").replace("'", "'") + "\""
+    private fun testConfig() = OpenRouterConfig(apiKey = "test-key", baseUrl = "https://openrouter.test")
 
-    private companion object {
-        const val REAL_DESCRIPTION =
-            "A philosophical novel about a research station orbiting a sentient ocean. " +
-                "The planet answers the scientists by materialising their buried memories, " +
-                "and the book turns first contact into a study of human limitation."
-    }
-
-    private fun settings(
-        style: String = "You describe books for a library catalogue.",
-        minLength: Int = 80
-    ) = DescriptionPromptSettings(style, minLength)
-
-    private fun config(apiKey: String? = "test-key") = OpenRouterConfig(
-        apiKey = apiKey,
-        model = "openrouter/auto"
-    )
-
-    @Test
-    fun usesTheAdministratorsStyleInsteadOfTheBuiltInOne() = runBlocking {
-        var body = ""
-        val engine = MockEngine { request ->
-            body = (request.body as TextContent).text
-            respondCompletion(REAL_DESCRIPTION)
+    private fun modelsResponse() = """
+        {
+          "data": [
+            {"id":"free","name":"Free text","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0","request":"0"}},
+            {"id":"paid","name":"Paid text","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0.0001","request":"0"}},
+            {"id":"paid-prompt","name":"Paid prompt","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0.0001","completion":"0","request":"0"}},
+            {"id":"paid-request","name":"Paid request","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0","request":"0.0001"}},
+            {"id":"missing-price","name":"Missing price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0"}},
+            {"id":"invalid-price","name":"Invalid price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"free","completion":"0","request":"0"}},
+            {"id":"image","name":"Free image","architecture":{"output_modalities":["image"]},"pricing":{"prompt":"0","completion":"0","request":"0"}}
+          ]
         }
-
-        OpenRouterClient(config(), HttpClient(engine)) { settings(style = "Write eight sentences.") }
-            .describeBook("Solaris", "Lem")
-
-        assertTrue(body.contains("Write eight sentences."), "expected the configured style in $body")
-    }
-
-    @Test
-    fun appendsTheGuardEvenWhenTheStyleOmitsIt() = runBlocking {
-        var body = ""
-        val engine = MockEngine { request ->
-            body = (request.body as TextContent).text
-            respondCompletion(REAL_DESCRIPTION)
-        }
-
-        // An administrator cannot disarm the rule that forbids invented plots.
-        OpenRouterClient(config(), HttpClient(engine)) { settings(style = "Just describe the book.") }
-            .describeBook("Solaris", "Lem")
-
-        assertTrue(body.contains("UNKNOWN"), "the guard must survive any style edit: $body")
-    }
-
-    @Test
-    fun honoursTheConfiguredMinimumLength() = runBlocking {
-        val engine = MockEngine { respondCompletion("A short one.") }
-
-        val summary = OpenRouterClient(config(), HttpClient(engine)) { settings(minLength = 5) }
-            .describeBook("Solaris", "Lem")
-
-        assertEquals("A short one.", summary)
-    }
+    """.trimIndent()
 }

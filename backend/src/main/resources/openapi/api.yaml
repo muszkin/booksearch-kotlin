@@ -1096,6 +1096,332 @@ paths:
         '404':
           description: Admin user not found
 
+  /api/translation/models:
+    get:
+      operationId: listTranslationModels
+      tags: [translation]
+      summary: List currently free text models
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TranslationModel'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid request, missing confirmation, unavailable configuration, or ineligible source or model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/{libraryId}/estimate:
+    get:
+      operationId: estimateTranslation
+      tags: [translation]
+      summary: Estimate translation of an owned downloaded English EPUB
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationEstimateResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource not found or not owned by the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid request, missing confirmation, unavailable configuration, or ineligible source or model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/{libraryId}:
+    post:
+      operationId: startTranslation
+      tags: [translation]
+      summary: Confirm external processing and queue a translation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslationStartRequest'
+      responses:
+        '202':
+          description: Translation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationStartedResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource not found or not owned by the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An active translation already exists or the job state does not allow this operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid request, missing confirmation, unavailable configuration, or ineligible source or model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/jobs:
+    get:
+      operationId: listTranslationJobs
+      tags: [translation]
+      summary: Rediscover owned queued, running, and paused translations
+      description: Returns active and resumable jobs for the authenticated user, including jobs started in another browser session. Terminal jobs are omitted.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Owned active or paused jobs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TranslationStatusResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/jobs/{jobId}:
+    get:
+      operationId: getTranslationStatus
+      tags: [translation]
+      summary: Get an owned translation job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationStatusResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource not found or not owned by the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/jobs/{jobId}/resume:
+    post:
+      operationId: resumeTranslation
+      tags: [translation]
+      summary: Resume a paused translation after revalidating its source and model
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Translation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationStartedResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource not found or not owned by the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An active translation already exists or the job state does not allow this operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid request, missing confirmation, unavailable configuration, or ineligible source or model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/translation/jobs/{jobId}/cancel:
+    post:
+      operationId: cancelTranslation
+      tags: [translation]
+      summary: Cancel queued or paused work and remove its private workspace
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Translation cancelled
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Resource not found or not owned by the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An active translation already exists or the job state does not allow this operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/admin/translation/config:
+    get:
+      operationId: getTranslationConfig
+      tags: [admin]
+      summary: Get saved model and live eligibility without credentials
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationConfigResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Super-admin required; impersonated sessions denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      operationId: updateTranslationConfig
+      tags: [admin]
+      summary: Save a currently free text model as default
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranslationConfigRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationConfigResponse'
+        '401':
+          description: Missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Super-admin required; impersonated sessions denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid request, missing confirmation, unavailable configuration, or ineligible source or model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1103,6 +1429,121 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    ErrorResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
+
+    TranslationModel:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    TranslationStartRequest:
+      type: object
+      required: [externalProcessingConfirmed]
+      properties:
+        externalProcessingConfirmed:
+          type: boolean
+          description: Must be explicitly true to permit sending EPUB text to OpenRouter.
+
+    TranslationJobState:
+      type: string
+      enum: [queued, running, paused, completed, failed, cancelled]
+
+    TranslationStartedResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+          description: UUID identifying the translation job.
+        status:
+          $ref: '#/components/schemas/TranslationJobState'
+
+    TranslationEstimateResponse:
+      type: object
+      required: [totalChapters, estimatedInputTokens, modelId, indicativeDuration, limitWarning]
+      properties:
+        totalChapters:
+          type: integer
+        estimatedInputTokens:
+          type: integer
+        modelId:
+          type: string
+        indicativeDuration:
+          type: string
+          description: Indicative duration category, currently minutes_to_hours.
+        limitWarning:
+          type: string
+
+    TranslationStatusResponse:
+      type: object
+      required: [jobId, status, sourceLibraryEntryId, modelId, totalChapters, completedChapters, estimatedInputTokens, actualInputTokens, actualOutputTokens, resumable]
+      properties:
+        jobId:
+          type: string
+          description: UUID identifying the translation job.
+        status:
+          $ref: '#/components/schemas/TranslationJobState'
+        sourceLibraryEntryId:
+          type: integer
+        modelId:
+          type: string
+        totalChapters:
+          type: integer
+        completedChapters:
+          type: integer
+        failedChapterIndex:
+          type: integer
+          nullable: true
+        estimatedInputTokens:
+          type: integer
+        actualInputTokens:
+          type: integer
+        actualOutputTokens:
+          type: integer
+        outputLibraryEntryId:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+          description: Safe error code; never source text or an upstream response.
+        resumable:
+          type: boolean
+
+    TranslationConfigRequest:
+      type: object
+      required: [defaultModelId]
+      properties:
+        defaultModelId:
+          type: string
+          minLength: 1
+
+    TranslationConfigResponse:
+      type: object
+      required: [defaultModelId, configured, eligible]
+      properties:
+        defaultModelId:
+          type: string
+          nullable: true
+        configured:
+          type: boolean
+          description: Whether server credentials and a default model are configured.
+        eligible:
+          type: boolean
+          nullable: true
+          description: Live free-text eligibility; null when the model list could not be checked.
+
     RegisterRequest:
       type: object
       required: [email, password, displayName]

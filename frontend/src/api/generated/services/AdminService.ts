@@ -8,6 +8,8 @@ import type { DescriptionPromptRequest } from '../models/DescriptionPromptReques
 import type { DescriptionPromptResponse } from '../models/DescriptionPromptResponse';
 import type { LoginResponse } from '../models/LoginResponse';
 import type { ToggleRegistrationRequest } from '../models/ToggleRegistrationRequest';
+import type { TranslationConfigRequest } from '../models/TranslationConfigRequest';
+import type { TranslationConfigResponse } from '../models/TranslationConfigResponse';
 import type { UserResponse } from '../models/UserResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -196,6 +198,42 @@ export class AdminService {
                 401: `Not authenticated or refresh token invalid`,
                 403: `Current session is not an impersonation session`,
                 404: `Admin user not found`,
+            },
+        });
+    }
+    /**
+     * Get saved model and live eligibility without credentials
+     * @returns TranslationConfigResponse Successful response
+     * @throws ApiError
+     */
+    public static getTranslationConfig(): CancelablePromise<TranslationConfigResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/admin/translation/config',
+            errors: {
+                401: `Missing or invalid JWT`,
+                403: `Super-admin required; impersonated sessions denied`,
+            },
+        });
+    }
+    /**
+     * Save a currently free text model as default
+     * @param requestBody
+     * @returns TranslationConfigResponse Successful response
+     * @throws ApiError
+     */
+    public static updateTranslationConfig(
+        requestBody: TranslationConfigRequest,
+    ): CancelablePromise<TranslationConfigResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/admin/translation/config',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `Missing or invalid JWT`,
+                403: `Super-admin required; impersonated sessions denied`,
+                422: `Invalid request, missing confirmation, unavailable configuration, or ineligible source or model`,
             },
         });
     }

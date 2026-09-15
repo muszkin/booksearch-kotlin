@@ -37,6 +37,7 @@ import pl.fairydeck.booksearch.api.openApiRoutes
 import pl.fairydeck.booksearch.api.searchRoutes
 import pl.fairydeck.booksearch.api.logRoutes
 import pl.fairydeck.booksearch.api.settingsRoutes
+import pl.fairydeck.booksearch.api.translationRoutes
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
@@ -150,24 +151,34 @@ fun Application.module() {
     val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
     val fastDownloadClient = AnnaArchiveFastDownloadClient(scraperConfig)
     val torrentFallbackClient = TorrentFallbackClient(scraperConfig, impersonatorHttpClient)
+    val openRouterClient = OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)) {
+        DescriptionPromptSettings(
+            style = systemConfigRepository.getDescriptionStyle(),
+            minLength = systemConfigRepository.getMinDescriptionLength()
+        )
+    }
     val bookDescriptionService = BookDescriptionService(
         bookRepository,
         AnnaArchiveRecordClient(annaArchiveSessionClient),
-        OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)) {
-            DescriptionPromptSettings(
-                style = systemConfigRepository.getDescriptionStyle(),
-                minLength = systemConfigRepository.getMinDescriptionLength()
-            )
-        },
+        openRouterClient,
         mirrorService
     )
     val libraryService = LibraryService(
         userLibraryRepository,
         bookRepository,
         scraperConfig,
-        metadataService,
-        bookDescriptionService
+        metadataService = metadataService,
+        dsl = dsl,
+        bookDescriptionService = bookDescriptionService
     )
+    val translationJobs = pl.fairydeck.booksearch.repository.TranslationJobRepository(dsl)
+    translationJobs.pauseInterruptedJobs()
+    val translationService = pl.fairydeck.booksearch.service.TranslationService(
+        translationJobs, pl.fairydeck.booksearch.repository.TranslationChapterRepository(dsl), systemConfigRepository,
+        libraryService, pl.fairydeck.booksearch.service.EpubTranslationWorkspace(java.nio.file.Path.of(scraperConfig.dataPath, ".translation-jobs")),
+        openRouterClient.takeIf { it.isConfigured }, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO), activityLogService
+    )
+    monitor.subscribe(ApplicationStopped) { openRouterClient.close() }
     val downloadService = DownloadService(
         downloadJobRepository = downloadJobRepository,
         bookRepository = bookRepository,
@@ -202,7 +213,7 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, bookDescriptionService)
+    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, bookDescriptionService, translationService, openRouterClient.takeIf { it.isConfigured })
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
@@ -239,7 +250,7 @@ private fun Application.configureDatabase(): DSLContext {
     }
 }
 
-private fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: String, jwtAudience: String) {
+internal fun Application.configureAuthentication(jwtSecret: String, jwtIssuer: String, jwtAudience: String) {
     install(Authentication) {
         jwt("jwt") {
             verifier(
@@ -312,7 +323,7 @@ private fun Application.configureContentNegotiation() {
     }
 }
 
-private fun Application.configureStatusPages() {
+internal fun Application.configureStatusPages() {
     install(StatusPages) {
         exception<AuthenticationException> { call, cause ->
             call.respond(
@@ -378,12 +389,15 @@ private fun Application.configureRouting(
     downloadJobRepository: DownloadJobRepository,
     activityLogRepository: ActivityLogRepository,
     requestLogRepository: RequestLogRepository,
-    bookDescriptionService: BookDescriptionService
+    bookDescriptionService: BookDescriptionService,
+    translationService: pl.fairydeck.booksearch.service.TranslationService,
+    openRouterClient: OpenRouterClient?
 ) {
     routing {
         healthRoutes()
         authRoutes(authService, systemConfigRepository)
-        adminRoutes(authService, systemConfigRepository)
+        adminRoutes(authService, systemConfigRepository, openRouterClient)
+        translationRoutes(translationService, openRouterClient)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
         bookRoutes(bookDescriptionService)

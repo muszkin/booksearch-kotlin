@@ -11,12 +11,34 @@ import pl.fairydeck.booksearch.models.CreateUserRequest
 import pl.fairydeck.booksearch.models.StopImpersonationRequest
 import pl.fairydeck.booksearch.models.ToggleRegistrationRequest
 import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
+import pl.fairydeck.booksearch.models.TranslationConfigRequest
+import pl.fairydeck.booksearch.models.TranslationConfigResponse
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.service.AuthService
 
-fun Route.adminRoutes(authService: AuthService, systemConfigRepository: SystemConfigRepository) {
+fun Route.adminRoutes(authService: AuthService, systemConfigRepository: SystemConfigRepository, openRouter: OpenRouterClient?) {
     authenticate("jwt") {
         route("/api/admin") {
+            get("/translation/config") {
+                requireSuperAdmin(call)
+                val modelId = systemConfigRepository.getTranslationDefaultModel()
+                val configured = openRouter != null && !modelId.isNullOrBlank()
+                val eligible = if (!configured) false else try {
+                    freeTranslationModels(openRouter).any { it.id == modelId }
+                } catch (_: ValidationException) { null }
+                call.respond(TranslationConfigResponse(modelId, configured, eligible))
+            }
+
+            put("/translation/config") {
+                requireSuperAdmin(call)
+                val request = call.receiveTranslationRequest<TranslationConfigRequest>()
+                if (request.defaultModelId.isBlank() || freeTranslationModels(openRouter).none { it.id == request.defaultModelId }) {
+                    throw ValidationException("Select a currently free text translation model")
+                }
+                systemConfigRepository.setTranslationDefaultModel(request.defaultModelId)
+                call.respond(TranslationConfigResponse(request.defaultModelId, configured = true, eligible = true))
+            }
+
             get("/description-prompt") {
                 requireSuperAdmin(call)
                 call.respond(

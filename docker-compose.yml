@@ -28,6 +28,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
       FLARESOLVERR_PROXY_URL: ${FLARESOLVERR_PROXY_URL:-socks5://tor:9050}
+    # OPENROUTER_API_KEY is provided only through .env and is never persisted.
     volumes:
       - booksearch-data:/app/data
     depends_on:

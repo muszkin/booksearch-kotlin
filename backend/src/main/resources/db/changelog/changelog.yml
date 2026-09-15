@@ -29,3 +29,7 @@ databaseChangeLog:
       file: db/changelog/migrations/014-create-search-jobs-table.sql
   - include:
       file: db/changelog/migrations/015-add-book-description-metadata.sql
+  - include:
+      file: db/changelog/migrations/016-create-translation-jobs-table.sql
+  - include:
+      file: db/changelog/migrations/017-create-translation-chapters-table.sql
