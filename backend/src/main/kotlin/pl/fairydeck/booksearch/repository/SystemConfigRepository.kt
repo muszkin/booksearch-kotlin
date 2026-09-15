@@ -7,6 +7,7 @@ class SystemConfigRepository(private val dsl: DSLContext) {
 
     companion object {
         private const val REGISTRATION_ENABLED_KEY = "registration_enabled"
+        private const val TRANSLATION_DEFAULT_MODEL_KEY = "translation_default_model"
     }
 
     fun getValue(key: String): String? =
@@ -30,5 +31,12 @@ class SystemConfigRepository(private val dsl: DSLContext) {
 
     fun setRegistrationEnabled(enabled: Boolean) {
         setValue(REGISTRATION_ENABLED_KEY, enabled.toString())
+    }
+
+    fun getTranslationDefaultModel(): String? =
+        getValue(TRANSLATION_DEFAULT_MODEL_KEY)
+
+    fun setTranslationDefaultModel(modelId: String) {
+        setValue(TRANSLATION_DEFAULT_MODEL_KEY, modelId)
     }
 }
