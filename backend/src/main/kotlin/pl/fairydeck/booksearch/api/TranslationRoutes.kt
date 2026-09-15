@@ -16,6 +16,7 @@ import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
 import pl.fairydeck.booksearch.infrastructure.OpenRouterException
 import pl.fairydeck.booksearch.models.*
 import pl.fairydeck.booksearch.service.TranslationService
+import pl.fairydeck.booksearch.service.TranslationStatus
 
 fun Route.translationRoutes(service: TranslationService, openRouter: OpenRouterClient?) {
     authenticate("jwt") {
@@ -36,17 +37,11 @@ fun Route.translationRoutes(service: TranslationService, openRouter: OpenRouterC
                 val started = service.start(call.translationUserId(), call.translationLibraryId(), request.externalProcessingConfirmed)
                 call.respond(HttpStatusCode.Accepted, TranslationStartedResponse(started.jobId, TranslationJobState.QUEUED))
             }
+            get("/jobs") {
+                call.respond(service.listActive(call.translationUserId()).map { it.toResponse() })
+            }
             get("/jobs/{jobId}") {
-                val status = service.status(call.translationUserId(), call.parameters["jobId"]!!)
-                call.respond(TranslationStatusResponse(
-                    jobId = status.jobId, status = TranslationJobState.valueOf(status.status.uppercase()),
-                    sourceLibraryEntryId = status.sourceLibraryEntryId, modelId = status.modelId,
-                    totalChapters = status.totalChapters, completedChapters = status.completedChapters,
-                    estimatedInputTokens = status.estimatedInputTokens, actualInputTokens = status.actualInputTokens,
-                    actualOutputTokens = status.actualOutputTokens, resumable = status.resumable,
-                    failedChapterIndex = status.failedChapterIndex, outputLibraryEntryId = status.outputLibraryEntryId,
-                    error = status.error
-                ))
+                call.respond(service.status(call.translationUserId(), call.parameters["jobId"]!!).toResponse())
             }
             post("/jobs/{jobId}/resume") {
                 val started = service.resume(call.translationUserId(), call.parameters["jobId"]!!)
@@ -58,6 +53,19 @@ fun Route.translationRoutes(service: TranslationService, openRouter: OpenRouterC
             }
         }
     }
+}
+
+private fun TranslationStatus.toResponse(): TranslationStatusResponse {
+    val status = this
+    return TranslationStatusResponse(
+        jobId = status.jobId, status = TranslationJobState.valueOf(status.status.uppercase()),
+        sourceLibraryEntryId = status.sourceLibraryEntryId, modelId = status.modelId,
+        totalChapters = status.totalChapters, completedChapters = status.completedChapters,
+        estimatedInputTokens = status.estimatedInputTokens, actualInputTokens = status.actualInputTokens,
+        actualOutputTokens = status.actualOutputTokens, resumable = status.resumable,
+        failedChapterIndex = status.failedChapterIndex, outputLibraryEntryId = status.outputLibraryEntryId,
+        error = status.error
+    )
 }
 
 internal suspend fun freeTranslationModels(client: OpenRouterClient?) = try {

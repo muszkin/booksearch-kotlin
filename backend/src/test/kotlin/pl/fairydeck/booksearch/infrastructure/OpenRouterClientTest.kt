@@ -66,6 +66,7 @@ class OpenRouterClientTest {
         assertEquals("Polski tekst", client.translate("free", "English text").content)
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals("free", body["model"]?.jsonPrimitive?.content)
+        assertEquals(Json.parseToJsonElement("""[{"role":"user","content":"English text"}]"""), body["messages"])
         assertFalse(body.containsKey("fallback_models"))
         assertEquals(false, body["provider"]?.jsonObject?.get("allow_fallbacks")?.jsonPrimitive?.boolean)
 

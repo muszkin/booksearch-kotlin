@@ -158,6 +158,10 @@ function handleRemove(bookId: number) {
   />
 
   <div class="p-6">
+    <div v-if="translation.discoveryError" class="mb-4 space-y-2">
+      <AlertMessage variant="error" :message="translation.discoveryError" />
+      <BaseButton variant="secondary" :loading="translation.restoring" @click="translation.restore()">Retry restoring translations</BaseButton>
+    </div>
     <div v-for="[jobId, message] in [...translation.jobErrors].filter(([id]) => !translation.jobs.has(id))" :key="jobId" class="mb-4 space-y-2">
       <AlertMessage variant="error" :message="message" />
       <BaseButton variant="secondary" @click="translation.refreshStatus(jobId)">Retry restoring translation</BaseButton>
@@ -220,7 +224,7 @@ function handleRemove(bookId: number) {
               :kindle-enabled="store.deviceSettings.kindle"
               :pocketbook-enabled="store.deviceSettings.pocketbook"
               :delivery-loading="deliveryLoading.get(book.id) ?? false"
-              :translation-active="['queued', 'running', 'paused'].includes(translation.jobForLibrary(book.id)?.status ?? '')"
+              :translation-active="translation.restoring || !!translation.discoveryError || ['queued', 'running', 'paused'].includes(translation.jobForLibrary(book.id)?.status ?? '')"
               @download-file="handleDownloadFile(book.id)"
               @start-download="handleStartDownload(book.bookMd5)"
               @convert="handleConvert(book.id, $event)"

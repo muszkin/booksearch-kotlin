@@ -76,6 +76,21 @@ export class TranslationService {
         });
     }
     /**
+     * Rediscover owned queued, running, and paused translations
+     * Returns active and resumable jobs for the authenticated user, including jobs started in another browser session. Terminal jobs are omitted.
+     * @returns TranslationStatusResponse Owned active or paused jobs, newest first
+     * @throws ApiError
+     */
+    public static listTranslationJobs(): CancelablePromise<Array<TranslationStatusResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/translation/jobs',
+            errors: {
+                401: `Missing or invalid JWT`,
+            },
+        });
+    }
+    /**
      * Get an owned translation job
      * @param jobId
      * @returns TranslationStatusResponse Successful response

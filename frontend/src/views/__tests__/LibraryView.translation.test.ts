@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.spyOn(DeliverService, 'getUserDeliveries').mockResolvedValue([])
   vi.spyOn(TranslationService, 'estimateTranslation').mockResolvedValue({ totalChapters: 2, estimatedInputTokens: 200, modelId: 'free/model', indicativeDuration: 'minutes_to_hours', limitWarning: 'Daily limits apply.' })
   vi.spyOn(TranslationService, 'startTranslation').mockResolvedValue({ jobId: 'job-id', status: TranslationJobState.QUEUED })
+  vi.spyOn(TranslationService, 'listTranslationJobs').mockResolvedValue([])
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -23,6 +24,24 @@ afterEach(() => {
 })
 
 describe('LibraryView translation integration', () => {
+  it('rediscovers a paused job in a fresh session and offers resume instead of duplicate start', async () => {
+    window.sessionStorage.clear()
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([{
+      jobId: 'persisted-job', sourceLibraryEntryId: 1, status: TranslationJobState.PAUSED,
+      modelId: 'free/model', totalChapters: 2, completedChapters: 1, estimatedInputTokens: 200,
+      actualInputTokens: 100, actualOutputTokens: 90, resumable: true, error: 'server_restart',
+    }])
+    vi.spyOn(TranslationService, 'resumeTranslation').mockResolvedValue({ jobId: 'persisted-job', status: TranslationJobState.QUEUED })
+    wrapper = mount(LibraryView)
+    await flushPromises()
+    expect(wrapper.get('[aria-label="Translation progress"]').text()).toContain('1 / 2')
+    expect(wrapper.get('[data-testid="translate-btn"]').attributes('disabled')).toBeDefined()
+    await wrapper.findAll('button').find((button) => button.text() === 'Resume')!.trigger('click')
+    await flushPromises()
+    expect(TranslationService.resumeTranslation).toHaveBeenCalledExactlyOnceWith('persisted-job')
+    expect(TranslationService.startTranslation).not.toHaveBeenCalled()
+  })
+
   it('opens estimate without starting, confirms, shows progress, and cleans polling on unmount', async () => {
     wrapper = mount(LibraryView)
     await flushPromises()

@@ -139,7 +139,7 @@ fun Application.module() {
     val translationService = pl.fairydeck.booksearch.service.TranslationService(
         translationJobs, pl.fairydeck.booksearch.repository.TranslationChapterRepository(dsl), systemConfigRepository,
         libraryService, pl.fairydeck.booksearch.service.EpubTranslationWorkspace(java.nio.file.Path.of(scraperConfig.dataPath, ".translation-jobs")),
-        openRouterClient, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO)
+        openRouterClient, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO), activityLogService
     )
     attributes.put(translationServiceKey, translationService)
     monitor.subscribe(ApplicationStopped) { openRouterClient?.close() }

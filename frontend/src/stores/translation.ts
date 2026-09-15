@@ -17,6 +17,8 @@ export const useTranslationStore = defineStore('translation', () => {
   const busyJobs = ref(new Set<string>())
   const loading = ref(false)
   const starting = ref(false)
+  const restoring = ref(false)
+  const discoveryError = ref<string | null>(null)
   const error = ref<string | null>(null)
   const intervals = new Map<string, ReturnType<typeof setInterval>>()
   const requests = new Map<string, symbol>()
@@ -24,6 +26,7 @@ export const useTranslationStore = defineStore('translation', () => {
   let generation = 0
   let estimateRequest = 0
   let observing = false
+  let restoreRequest = 0
 
   function recoveryKey() {
     if (!auth.user) return null
@@ -48,6 +51,11 @@ export const useTranslationStore = defineStore('translation', () => {
 
   async function restore() {
     observing = true
+    restoring.value = true
+    discoveryError.value = null
+    const currentGeneration = generation
+    const request = ++restoreRequest
+    const previousJobs = new Map(jobs.value)
     const ids = new Set(jobs.value.keys())
     const key = recoveryKey()
     if (key) {
@@ -65,11 +73,31 @@ export const useTranslationStore = defineStore('translation', () => {
         // Ignore malformed or inaccessible local recovery data.
       }
     }
-    await Promise.all([...ids].map(refreshStatus))
+    try {
+      const found = await TranslationService.listTranslationJobs()
+      if (currentGeneration !== generation || request !== restoreRequest) return
+      for (const job of found) {
+        // A resume, cancellation or status response may have completed during discovery.
+        if (jobs.value.get(job.jobId) !== previousJobs.get(job.jobId) || busyJobs.value.has(job.jobId)) continue
+        jobs.value.set(job.jobId, job)
+        jobErrors.value.delete(job.jobId)
+        ids.delete(job.jobId)
+        if (ACTIVE_STATES.has(job.status)) poll(job.jobId)
+        else stopPolling(job.jobId)
+      }
+      saveRecovery()
+    } catch {
+      if (currentGeneration !== generation || request !== restoreRequest) return
+      discoveryError.value = 'Could not restore translations. Retry before starting a new translation.'
+    } finally {
+      if (currentGeneration === generation && request === restoreRequest) restoring.value = false
+    }
+    if (currentGeneration === generation && request === restoreRequest) await Promise.all([...ids].map(refreshStatus))
   }
 
   function jobForLibrary(libraryId: number) {
-    return [...jobs.value.values()].reverse().find((job) => job.sourceLibraryEntryId === libraryId)
+    const matches = [...jobs.value.values()].reverse().filter((job) => job.sourceLibraryEntryId === libraryId)
+    return matches.find((job) => ACTIVE_STATES.has(job.status) || job.status === TranslationJobState.PAUSED) ?? matches[0]
   }
 
   async function estimate(libraryId: number) {
@@ -143,7 +171,9 @@ export const useTranslationStore = defineStore('translation', () => {
 
   async function start(libraryId: number) {
     const estimate = estimates.value.get(libraryId)
-    if (starting.value || !estimate) return false
+    const existing = jobForLibrary(libraryId)
+    if (starting.value || restoring.value || discoveryError.value || !estimate ||
+      (existing && (ACTIVE_STATES.has(existing.status) || existing.status === TranslationJobState.PAUSED))) return false
     starting.value = true
     error.value = null
     const currentGeneration = generation
@@ -160,6 +190,13 @@ export const useTranslationStore = defineStore('translation', () => {
       return true
     } catch (err) {
       if (currentGeneration === generation) {
+        if (err instanceof ApiError && err.status === 409) {
+          await restore()
+          if (currentGeneration !== generation) return false
+          const recovered = jobForLibrary(libraryId)
+          // Let the dialog close onto the recovered progress controls.
+          if (recovered && (ACTIVE_STATES.has(recovered.status) || recovered.status === TranslationJobState.PAUSED)) return true
+        }
         error.value = err instanceof ApiError && err.status === 409
           ? 'An active translation already exists for this EPUB.'
           : 'Could not start translation. Check that this EPUB and the configured free model are still available.'
@@ -216,6 +253,8 @@ export const useTranslationStore = defineStore('translation', () => {
     requests.clear()
     loading.value = false
     starting.value = false
+    restoring.value = false
+    discoveryError.value = null
     busyJobs.value.clear()
   }
 
@@ -232,5 +271,5 @@ export const useTranslationStore = defineStore('translation', () => {
   }, { flush: 'sync' })
   onScopeDispose(cleanup)
 
-  return { estimates, jobs, jobErrors, busyJobs, loading, starting, error, jobForLibrary, estimate, start, poll, refreshStatus, resume, cancel, stopPolling, restore, cleanup }
+  return { estimates, jobs, jobErrors, busyJobs, loading, starting, restoring, discoveryError, error, jobForLibrary, estimate, start, poll, refreshStatus, resume, cancel, stopPolling, restore, cleanup }
 })

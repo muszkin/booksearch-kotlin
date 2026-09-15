@@ -57,7 +57,7 @@ class TranslationRoutesTest {
         coEvery { openRouter.listFreeTextModels() } returns listOf(OpenRouterModel("free", "Free model"))
         coEvery { openRouter.translate(any(), any()) } coAnswers { awaitCancellation() }
         service = TranslationService(jobs, TranslationChapterRepository(dsl), settings, library,
-            EpubTranslationWorkspace(dir.resolve("jobs")), openRouter, worker, retryDelayMillis = 0)
+            EpubTranslationWorkspace(dir.resolve("jobs")), openRouter, worker, ActivityLogService(ActivityLogRepository(dsl)), retryDelayMillis = 0)
     }
 
     @AfterEach fun cleanup() { worker.cancel() }
@@ -91,11 +91,34 @@ class TranslationRoutesTest {
     }
 
     @Test fun `all translation routes require JWT`() = app {
-        listOf("/api/translation/models", "/api/translation/$sourceId/estimate", "/api/translation/jobs/id", "/api/admin/translation/config")
+        listOf("/api/translation/models", "/api/translation/$sourceId/estimate", "/api/translation/jobs", "/api/translation/jobs/id", "/api/admin/translation/config")
             .forEach { assertEquals(HttpStatusCode.Unauthorized, client.get(it).status) }
         listOf("/api/translation/$sourceId", "/api/translation/jobs/id/resume", "/api/translation/jobs/id/cancel")
             .forEach { assertEquals(HttpStatusCode.Unauthorized, client.post(it).status) }
         assertEquals(HttpStatusCode.Unauthorized, client.put("/api/admin/translation/config").status)
+    }
+
+    @Test fun `discovers only owned active and paused jobs without a known UUID`() = app {
+        val paused = jobs.create(owner, sourceId, "free")
+        jobs.markPaused(paused, "server_restart")
+        val running = jobs.create(owner, sourceId, "free")
+        jobs.markRunning(running)
+        val queued = jobs.create(owner, sourceId, "free")
+        val cancelled = jobs.create(owner, sourceId, "free")
+        jobs.cancel(cancelled)
+        val failed = jobs.create(owner, sourceId, "free")
+        jobs.markFailed(failed, "workspace_failed")
+        val completed = jobs.create(owner, sourceId, "free")
+        jobs.markCompleted(completed, sourceId)
+        val response = client.get("/api/translation/jobs") { bearerAuth(token()) }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val found = Json.parseToJsonElement(response.bodyAsText()).jsonArray
+        assertEquals(setOf(paused, running, queued), found.map { it.jsonObject["jobId"]!!.jsonPrimitive.content }.toSet())
+        assertTrue(found.single { it.jsonObject["jobId"]!!.jsonPrimitive.content == paused }.jsonObject["resumable"]!!.jsonPrimitive.boolean)
+        listOf("workspacePath", "sourceFilePath", "sourceBookMd5", "apiKey").forEach { assertFalse(response.bodyAsText().contains(it)) }
+        val otherResponse = client.get("/api/translation/jobs") { bearerAuth(token(other)) }
+        assertEquals(HttpStatusCode.OK, otherResponse.status)
+        assertTrue(Json.parseToJsonElement(otherResponse.bodyAsText()).jsonArray.isEmpty())
     }
 
     @Test fun `start requires explicit boolean confirmation`() = app {

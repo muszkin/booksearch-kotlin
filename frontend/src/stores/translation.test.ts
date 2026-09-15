@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { TranslationJobState, TranslationService } from '@/api/generated'
+import { ApiError, TranslationJobState, TranslationService } from '@/api/generated'
 import type { TranslationStatusResponse } from '@/api/generated'
 import { useLibraryStore } from './library'
 import { useTranslationStore } from './translation'
@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.spyOn(TranslationService, 'getTranslationStatus').mockResolvedValue(job)
   vi.spyOn(TranslationService, 'resumeTranslation').mockResolvedValue({ jobId: job.jobId, status: TranslationJobState.QUEUED })
   vi.spyOn(TranslationService, 'cancelTranslation').mockResolvedValue(undefined)
+  vi.spyOn(TranslationService, 'listTranslationJobs').mockResolvedValue([])
   vi.spyOn(useLibraryStore(), 'fetchLibrary').mockResolvedValue(undefined)
 })
 afterEach(() => {
@@ -28,6 +29,78 @@ afterEach(() => {
 })
 
 describe('translation store', () => {
+  it('rediscovers a job created in another browser when start races with discovery', async () => {
+    const store = useTranslationStore()
+    await store.restore()
+    await store.estimate(1)
+    vi.mocked(TranslationService.startTranslation).mockRejectedValueOnce(new ApiError(
+      { method: 'POST', url: '/api/translation/1' },
+      { url: '/api/translation/1', ok: false, status: 409, statusText: 'Conflict', body: {} }, 'Conflict',
+    ))
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([{ ...job, status: TranslationJobState.PAUSED, resumable: true }])
+    expect(await store.start(1)).toBe(true)
+    expect(store.jobForLibrary(1)?.resumable).toBe(true)
+    expect(store.error).toBeNull()
+    expect(TranslationService.startTranslation).toHaveBeenCalledOnce()
+  })
+
+  it('blocks start during discovery and after discovery failure until retry succeeds', async () => {
+    let reject!: (reason: Error) => void
+    vi.mocked(TranslationService.listTranslationJobs).mockReturnValueOnce(new Promise((_, fail) => { reject = fail }) as ReturnType<typeof TranslationService.listTranslationJobs>)
+    const store = useTranslationStore()
+    await store.estimate(1)
+    const pending = store.restore()
+    expect(store.restoring).toBe(true)
+    expect(await store.start(1)).toBe(false)
+    reject(new Error('offline'))
+    await pending
+    expect(store.discoveryError).toBeTruthy()
+    expect(await store.start(1)).toBe(false)
+    await store.restore()
+    expect(store.discoveryError).toBeNull()
+    expect(await store.start(1)).toBe(true)
+    expect(TranslationService.startTranslation).toHaveBeenCalledOnce()
+  })
+
+  it('prioritizes discovered active work over a retained terminal job for the same book', async () => {
+    const store = useTranslationStore()
+    store.jobs.set('old', { ...job, jobId: 'old', status: TranslationJobState.COMPLETED })
+    store.jobs.set(job.jobId, { ...job, status: TranslationJobState.PAUSED, resumable: true })
+    // A late status response can insert a terminal job after the active job.
+    store.jobs.set('older', { ...job, jobId: 'older', status: TranslationJobState.COMPLETED })
+    expect(store.jobForLibrary(1)?.jobId).toBe(job.jobId)
+  })
+
+  it.each([TranslationJobState.PAUSED, TranslationJobState.RUNNING])('discovers %s jobs without browser UUIDs and prevents duplicate start', async (status) => {
+    useAuthStore().user = { id: 7 } as UserResponse
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([{ ...job, status, resumable: status === TranslationJobState.PAUSED }])
+    const store = useTranslationStore()
+    await store.restore()
+    expect(TranslationService.listTranslationJobs).toHaveBeenCalledOnce()
+    expect(store.jobForLibrary(1)?.status).toBe(status)
+    await store.estimate(1)
+    expect(await store.start(1)).toBe(false)
+    expect(TranslationService.startTranslation).not.toHaveBeenCalled()
+    if (status === TranslationJobState.PAUSED) {
+      await store.resume(job.jobId)
+      expect(TranslationService.resumeTranslation).toHaveBeenCalledExactlyOnceWith(job.jobId)
+    } else {
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(TranslationService.getTranslationStatus).toHaveBeenCalledExactlyOnceWith(job.jobId)
+    }
+  })
+
+  it('ignores discovery results from a previous account', async () => {
+    let resolve!: (value: TranslationStatusResponse[]) => void
+    useAuthStore().user = { id: 7 } as UserResponse
+    vi.mocked(TranslationService.listTranslationJobs).mockReturnValueOnce(new Promise((done) => { resolve = done }) as ReturnType<typeof TranslationService.listTranslationJobs>)
+    const store = useTranslationStore()
+    const pending = store.restore()
+    useAuthStore().user = { id: 8 } as UserResponse
+    resolve([job])
+    await pending
+    expect(store.jobs.size).toBe(0)
+  })
   it('restores saved jobs when the current account finishes loading after the library mounts', async () => {
     const id = '12345678-1234-1234-1234-123456789abc'
     window.sessionStorage.setItem('translation-jobs:7', JSON.stringify([id]))

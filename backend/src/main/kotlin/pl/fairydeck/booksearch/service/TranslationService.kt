@@ -24,6 +24,7 @@ class TranslationService(
     private val workspace: EpubTranslationWorkspace,
     private val client: OpenRouterClient?,
     private val scope: CoroutineScope,
+    private val activityLog: ActivityLogService,
     private val retryDelayMillis: Long = 1000
 ) {
     private val requests = Mutex()
@@ -49,6 +50,7 @@ class TranslationService(
                 val plan = workspace.create(source.file, id)
                 jobs.updatePlan(id, source.bookMd5, source.file.absolutePath, plan.directory.toString(), plan.chapters.size, plan.estimatedInputTokens)
                 plan.chapters.forEach { chapters.create(id, it.index, it.href) }
+                activityLog.log(userId, "TRANSLATION_STARTED", "translation_job", id, "sourceLibraryEntryId=$sourceLibraryEntryId")
                 enqueue(userId, id)
                 TranslationStarted(id)
             } catch (_: Exception) {
@@ -58,9 +60,12 @@ class TranslationService(
         }
     }
 
-    fun status(userId: Int, jobId: String): TranslationStatus {
-        val job = owned(userId, jobId)
-        return TranslationStatus(jobId, job.status!!, job.sourceLibraryEntryId!!, job.modelId!!,
+    fun listActive(userId: Int): List<TranslationStatus> = jobs.findActiveByUserId(userId).map(::toStatus)
+
+    fun status(userId: Int, jobId: String): TranslationStatus = toStatus(owned(userId, jobId))
+
+    private fun toStatus(job: pl.fairydeck.booksearch.jooq.generated.tables.records.TranslationJobsRecord): TranslationStatus {
+        return TranslationStatus(job.id!!, job.status!!, job.sourceLibraryEntryId!!, job.modelId!!,
             job.totalChapters!!, job.completedChapters!!, job.failedChapterIndex, job.estimatedInputTokens!!,
             job.actualInputTokens!!, job.actualOutputTokens!!, job.outputLibraryEntryId, job.error, job.status == "paused")
     }
@@ -135,7 +140,8 @@ class TranslationService(
             if (!complete) return
         }
         try {
-            library.publishTranslation(userId, job.sourceLibraryEntryId!!, jobId, workspace.publish(plan))
+            val outputId = library.publishTranslation(userId, job.sourceLibraryEntryId!!, jobId, workspace.publish(plan))
+            activityLog.log(userId, "TRANSLATION_COMPLETED", "translation_job", jobId, "outputLibraryEntryId=$outputId")
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { jobs.markPaused(jobId, "publication_failed") }
     }

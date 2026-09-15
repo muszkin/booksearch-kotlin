@@ -43,7 +43,7 @@ class OpenRouterClient(
                 contentType(ContentType.Application.Json)
                 setBody(json.encodeToString(OpenRouterCompletionRequest(
                     model = modelId,
-                    messages = listOf(OpenRouterMessage(content = prompt)),
+                    messages = listOf(OpenRouterRequestMessage(role = "user", content = prompt)),
                     provider = OpenRouterProvider(allowFallbacks = false)
                 )))
             }
@@ -127,7 +127,7 @@ class OpenRouterClient(
     @Serializable
     private data class OpenRouterCompletionRequest(
         val model: String,
-        val messages: List<OpenRouterMessage>,
+        val messages: List<OpenRouterRequestMessage>,
         val provider: OpenRouterProvider
     )
 
@@ -135,6 +135,9 @@ class OpenRouterClient(
     private data class OpenRouterProvider(
         @SerialName("allow_fallbacks") val allowFallbacks: Boolean
     )
+
+    @Serializable
+    private data class OpenRouterRequestMessage(val role: String, val content: String)
 
     @Serializable
     private data class OpenRouterMessage(val role: String = "user", val content: String)

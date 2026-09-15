@@ -36,6 +36,13 @@ class TranslationJobRepository(private val dsl: DSLContext) {
             .and(TRANSLATION_JOBS.STATUS.`in`(STATUS_QUEUED, STATUS_RUNNING, STATUS_PAUSED))
             .fetchOne()
 
+    fun findActiveByUserId(userId: Int): List<TranslationJobsRecord> =
+        dsl.selectFrom(TRANSLATION_JOBS)
+            .where(TRANSLATION_JOBS.USER_ID.eq(userId))
+            .and(TRANSLATION_JOBS.STATUS.`in`(STATUS_QUEUED, STATUS_RUNNING, STATUS_PAUSED))
+            .orderBy(TRANSLATION_JOBS.CREATED_AT.desc(), TRANSLATION_JOBS.ID.desc())
+            .fetch()
+
     fun markRunning(id: String) {
         updateStatus(id, STATUS_RUNNING)
     }

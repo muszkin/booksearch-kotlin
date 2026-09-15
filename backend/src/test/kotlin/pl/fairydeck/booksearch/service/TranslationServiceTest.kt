@@ -47,7 +47,7 @@ class TranslationServiceTest {
         }
     }
 
-    private fun service(scope: CoroutineScope) = TranslationService(jobs, chapters, settings, library, EpubTranslationWorkspace(dir.resolve("jobs")), client, scope, retryDelayMillis = 0)
+    private fun service(scope: CoroutineScope) = TranslationService(jobs, chapters, settings, library, EpubTranslationWorkspace(dir.resolve("jobs")), client, scope, ActivityLogService(ActivityLogRepository(dsl)), retryDelayMillis = 0)
     private suspend fun awaitStopped(service: TranslationService, id: String) {
         withTimeout(5000) { while (service.status(owner, id).status in listOf("queued", "running")) yield() }
     }
@@ -78,6 +78,38 @@ class TranslationServiceTest {
         assertNotEquals(entryId, output.id)
         assertTrue(java.io.File(library.getFileForEntry(owner, output.id!!).absolutePath).exists())
         assertEquals("source.epub", entries.findByIdAndUserId(entryId, owner)!!.filePath)
+    }
+
+    @Test fun `audits confirmed start and committed publication with identifiers only`() = runBlocking {
+        val service = service(this)
+        assertThrows(ValidationException::class.java) { runBlocking { service.start(owner, entryId, false) } }
+        val audit = ActivityLogRepository(dsl)
+        assertTrue(audit.findByUserId(owner, 1, 100).items.isEmpty())
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        val events = audit.findByUserId(owner, 1, 100).items
+        assertEquals(setOf("TRANSLATION_STARTED", "TRANSLATION_COMPLETED"), events.map { it.actionType }.toSet())
+        assertEquals(2, events.size)
+        events.forEach {
+            assertEquals("translation_job", it.entityType)
+            assertEquals(id, it.entityId)
+        }
+        assertEquals("sourceLibraryEntryId=$entryId", events.single { it.actionType == "TRANSLATION_STARTED" }.details)
+        assertEquals("outputLibraryEntryId=${service.status(owner, id).outputLibraryEntryId}", events.single { it.actionType == "TRANSLATION_COMPLETED" }.details)
+    }
+
+    @Test fun `failed publication does not emit completion audit and resume emits it once`() = runBlocking {
+        dsl.execute("CREATE TRIGGER reject_translation BEFORE INSERT ON user_library WHEN NEW.book_md5 <> 'source' BEGIN SELECT RAISE(ABORT, 'secret publication failure'); END")
+        val service = service(this)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        val audit = ActivityLogRepository(dsl)
+        assertEquals(listOf("TRANSLATION_STARTED"), audit.findByUserId(owner, 1, 100).items.map { it.actionType })
+        dsl.execute("DROP TRIGGER reject_translation")
+        service.resume(owner, id)
+        awaitStopped(service, id)
+        assertEquals(1, audit.findByUserId(owner, 1, 100, "TRANSLATION_COMPLETED").items.size)
+        assertEquals(1, audit.findByUserId(owner, 1, 100, "TRANSLATION_STARTED").items.size)
     }
 
     @Test fun `preflight requires consent ownership English and currently free model`() = runBlocking {
