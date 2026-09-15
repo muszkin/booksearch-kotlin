@@ -28,6 +28,22 @@ class DownloadJobRepository(private val dsl: DSLContext) {
             .and(DOWNLOAD_JOBS.USER_ID.eq(userId))
             .fetchOne()
 
+    fun findActiveByUserAndBook(userId: Int, bookMd5: String, format: String): DownloadJobsRecord? =
+        dsl.selectFrom(DOWNLOAD_JOBS)
+            .where(DOWNLOAD_JOBS.USER_ID.eq(userId))
+            .and(DOWNLOAD_JOBS.BOOK_MD5.eq(bookMd5))
+            .and(DOWNLOAD_JOBS.FORMAT.eq(format))
+            .and(DOWNLOAD_JOBS.STATUS.`in`(ACTIVE_STATUSES))
+            .orderBy(DOWNLOAD_JOBS.CREATED_AT.desc())
+            .limit(1)
+            .fetchOne()
+
+    fun findRecoverable(): List<DownloadJobsRecord> =
+        dsl.selectFrom(DOWNLOAD_JOBS)
+            .where(DOWNLOAD_JOBS.STATUS.`in`(ACTIVE_STATUSES))
+            .orderBy(DOWNLOAD_JOBS.CREATED_AT.asc())
+            .fetch()
+
     fun updateProgress(jobId: Int, status: String, progress: Int) {
         dsl.update(DOWNLOAD_JOBS)
             .set(DOWNLOAD_JOBS.STATUS, status)
@@ -91,6 +107,29 @@ class DownloadJobRepository(private val dsl: DSLContext) {
             .set(DOWNLOAD_JOBS.UPDATED_AT, Instant.now().toString())
             .where(DOWNLOAD_JOBS.ID.eq(jobId))
             .and(DOWNLOAD_JOBS.USER_ID.eq(userId))
-            .and(DOWNLOAD_JOBS.STATUS.`in`("queued", "active"))
+            .and(DOWNLOAD_JOBS.STATUS.`in`(ACTIVE_STATUSES))
             .execute()
+
+    fun deleteTerminalOlderThan(cutoff: Instant): Int =
+        dsl.deleteFrom(DOWNLOAD_JOBS)
+            .where(DOWNLOAD_JOBS.CREATED_AT.lt(cutoff.toString()))
+            .and(DOWNLOAD_JOBS.STATUS.notIn(ACTIVE_STATUSES))
+            .execute()
+
+    companion object {
+        val ACTIVE_STATUSES = listOf(
+            "queued",
+            "fetching_fast_download",
+            "downloading_fast_download",
+            "fetching_detail",
+            "switching_egress",
+            "fetching_slow_download",
+            "waiting_for_download_slot",
+            "fetching_torrent_metadata",
+            "waiting_for_torrent_peers",
+            "downloading_torrent_piece",
+            "downloading_file",
+            "extracting_metadata"
+        )
+    }
 }

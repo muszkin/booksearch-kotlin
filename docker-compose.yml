@@ -7,6 +7,8 @@
 # Services:
 #   backend       — Kotlin/Ktor application serving API + SPA (port 8080)
 #   flaresolverr  — headless browser proxy for Cloudflare bypass (port 8191)
+#   tor           — private fallback egress for reputation-blocked requests
+#   autoheal      — restarts unhealthy FlareSolverr and Tor containers
 #   mailpit       — development SMTP server + web UI (ports 1025, 8025)
 
 services:
@@ -20,6 +22,12 @@ services:
       - "${SERVER_PORT:-8080}:8080"
     env_file:
       - .env
+    environment:
+      MIRROR_DOMAINS: annas-archive.gd,annas-archive.pk,annas-archive.gl
+      ANNA_ARCHIVE_API_KEY: ${ANNA_ARCHIVE_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
+      FLARESOLVERR_PROXY_URL: ${FLARESOLVERR_PROXY_URL:-socks5://tor:9050}
     # OPENROUTER_API_KEY is provided only through .env and is never persisted.
     volumes:
       - booksearch-data:/app/data
@@ -56,11 +64,18 @@ services:
       - LOG_LEVEL=${FLARESOLVERR_LOG_LEVEL:-info}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8191/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -X POST http://localhost:8191/v1
+          -H 'Content-Type: application/json'
+          --data '{"cmd":"request.get","url":"https://www.google.com","maxTimeout":30000}'
+          | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'
+      interval: 30m
+      start_interval: 10s
+      timeout: 45s
+      retries: 2
+      start_period: 60s
     logging:
       driver: json-file
       options:
@@ -69,6 +84,44 @@ services:
     labels:
       logging.stack: booksearch
       logging.job: booksearch-flaresolverr
+      booksearch.autoheal: "true"
+
+  # Used only when direct browser sessions are blocked by DDoS-Guard.
+  # No proxy or control ports are published on the host.
+  tor:
+    image: dockurr/tor:0.4.9.11@sha256:446881b3366cbc2cc5cf8d13a76e3104f60824b7c15343d14defe903ded18f0d
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      logging.stack: booksearch
+      logging.job: booksearch-tor
+      booksearch.autoheal: "true"
+
+  # Docker restart policies react to process exits, not to an unhealthy
+  # healthcheck. Autoheal watches only explicitly labelled containers.
+  autoheal:
+    image: willfarrell/autoheal:1.1.0
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: booksearch.autoheal
+      AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_START_PERIOD: 60
+      AUTOHEAL_ONLY_MONITOR_RUNNING: "true"
+    network_mode: none
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      logging.stack: booksearch
+      logging.job: booksearch-autoheal
 
   # Mailpit — local SMTP catch-all for development.
   # In production replace with a real SMTP server and remove this service.

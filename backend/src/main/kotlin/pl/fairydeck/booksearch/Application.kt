@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import org.jooq.DSLContext
 import org.slf4j.MDC
 import pl.fairydeck.booksearch.api.AuthenticationException
+import pl.fairydeck.booksearch.api.bookRoutes
 import pl.fairydeck.booksearch.api.AuthorizationException
 import pl.fairydeck.booksearch.api.ConflictException
 import pl.fairydeck.booksearch.api.NotFoundException
@@ -40,9 +41,17 @@ import pl.fairydeck.booksearch.api.translationRoutes
 import pl.fairydeck.booksearch.repository.UserSettingsRepository
 import pl.fairydeck.booksearch.infrastructure.DatabaseFactory
 import pl.fairydeck.booksearch.infrastructure.ImpersonatorHttpClient
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveFastDownloadClient
+import pl.fairydeck.booksearch.infrastructure.TorrentFallbackClient
 import pl.fairydeck.booksearch.infrastructure.MirrorConfig
 import pl.fairydeck.booksearch.infrastructure.RequestLoggerPlugin
 import pl.fairydeck.booksearch.infrastructure.requestLogRepositoryKey
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveRecordClient
+import pl.fairydeck.booksearch.infrastructure.DescriptionPromptSettings
+import pl.fairydeck.booksearch.infrastructure.AnnaArchiveSessionClient
+import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
+import pl.fairydeck.booksearch.infrastructure.OpenRouterConfig
+import pl.fairydeck.booksearch.infrastructure.RetentionConfig
 import pl.fairydeck.booksearch.infrastructure.ScraperConfig
 import pl.fairydeck.booksearch.infrastructure.SolvearrClient
 import pl.fairydeck.booksearch.repository.ActivityLogRepository
@@ -51,11 +60,13 @@ import pl.fairydeck.booksearch.repository.MirrorRepository
 import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.RequestLogRepository
+import pl.fairydeck.booksearch.repository.SearchJobRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserLibraryRepository
 import pl.fairydeck.booksearch.repository.UserRepository
 import pl.fairydeck.booksearch.repository.DeliveryRepository
 import pl.fairydeck.booksearch.repository.DownloadJobRepository
+import pl.fairydeck.booksearch.repository.DownloadSourceRepository
 import pl.fairydeck.booksearch.service.ActivityLogService
 import pl.fairydeck.booksearch.service.AuthService
 import pl.fairydeck.booksearch.service.CalibreWrapper
@@ -64,6 +75,8 @@ import pl.fairydeck.booksearch.service.DeliveryService
 import pl.fairydeck.booksearch.service.DownloadService
 import pl.fairydeck.booksearch.service.LibraryService
 import pl.fairydeck.booksearch.service.MetadataService
+import pl.fairydeck.booksearch.service.BookDescriptionService
+import pl.fairydeck.booksearch.service.JobRetentionService
 import pl.fairydeck.booksearch.service.MirrorService
 import pl.fairydeck.booksearch.service.ScraperService
 import pl.fairydeck.booksearch.service.SearchService
@@ -125,26 +138,47 @@ fun Application.module() {
     val mirrorRepository = MirrorRepository(dsl)
     val solvearrClient = SolvearrClient(scraperConfig)
     val mirrorService = MirrorService(mirrorRepository, solvearrClient, mirrorConfig)
-    val scraperService = ScraperService(solvearrClient, mirrorService)
+    val annaArchiveSessionClient = AnnaArchiveSessionClient(scraperConfig)
+    val scraperService = ScraperService(solvearrClient, mirrorService, annaArchiveSessionClient)
     val bookRepository = BookRepository(dsl)
     val userLibraryRepository = UserLibraryRepository(dsl)
     val userSettingsRepository = UserSettingsRepository(dsl)
-    val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
+    val searchJobRepository = SearchJobRepository(dsl)
+    val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, searchJobRepository)
     val metadataService = MetadataService()
-    val libraryService = LibraryService(userLibraryRepository, bookRepository, scraperConfig, metadataService, dsl)
+    val downloadJobRepository = DownloadJobRepository(dsl)
+    val downloadSourceRepository = DownloadSourceRepository(dsl)
+    val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
+    val fastDownloadClient = AnnaArchiveFastDownloadClient(scraperConfig)
+    val torrentFallbackClient = TorrentFallbackClient(scraperConfig, impersonatorHttpClient)
+    val openRouterClient = OpenRouterClient(OpenRouterConfig.fromEnvironment(environment)) {
+        DescriptionPromptSettings(
+            style = systemConfigRepository.getDescriptionStyle(),
+            minLength = systemConfigRepository.getMinDescriptionLength()
+        )
+    }
+    val bookDescriptionService = BookDescriptionService(
+        bookRepository,
+        AnnaArchiveRecordClient(annaArchiveSessionClient),
+        openRouterClient,
+        mirrorService
+    )
+    val libraryService = LibraryService(
+        userLibraryRepository,
+        bookRepository,
+        scraperConfig,
+        metadataService = metadataService,
+        dsl = dsl,
+        bookDescriptionService = bookDescriptionService
+    )
     val translationJobs = pl.fairydeck.booksearch.repository.TranslationJobRepository(dsl)
     translationJobs.pauseInterruptedJobs()
-    val openRouterClient = if (System.getenv("OPENROUTER_API_KEY").isNullOrBlank()) null else
-        pl.fairydeck.booksearch.infrastructure.OpenRouterClient(pl.fairydeck.booksearch.infrastructure.OpenRouterConfig.fromEnvironment(environment))
     val translationService = pl.fairydeck.booksearch.service.TranslationService(
         translationJobs, pl.fairydeck.booksearch.repository.TranslationChapterRepository(dsl), systemConfigRepository,
         libraryService, pl.fairydeck.booksearch.service.EpubTranslationWorkspace(java.nio.file.Path.of(scraperConfig.dataPath, ".translation-jobs")),
-        openRouterClient, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO), activityLogService
+        openRouterClient.takeIf { it.isConfigured }, kotlinx.coroutines.CoroutineScope(coroutineContext + kotlinx.coroutines.Dispatchers.IO), activityLogService
     )
-    attributes.put(translationServiceKey, translationService)
-    monitor.subscribe(ApplicationStopped) { openRouterClient?.close() }
-    val downloadJobRepository = DownloadJobRepository(dsl)
-    val impersonatorHttpClient = ImpersonatorHttpClient(scraperConfig)
+    monitor.subscribe(ApplicationStopped) { openRouterClient.close() }
     val downloadService = DownloadService(
         downloadJobRepository = downloadJobRepository,
         bookRepository = bookRepository,
@@ -153,7 +187,16 @@ fun Application.module() {
         impersonatorHttpClient = impersonatorHttpClient,
         mirrorService = mirrorService,
         scraperConfig = scraperConfig,
-        metadataService = metadataService
+        metadataService = metadataService,
+        fastDownloadClient = fastDownloadClient,
+        torrentFallbackClient = torrentFallbackClient,
+        downloadSourceRepository = downloadSourceRepository,
+        bookDescriptionService = bookDescriptionService
+    )
+    val jobRetentionService = JobRetentionService(
+        searchJobRepository,
+        downloadJobRepository,
+        RetentionConfig.fromEnvironment(environment)
     )
     val calibreWrapper = CalibreWrapper()
     val conversionService = ConversionService(
@@ -170,19 +213,31 @@ fun Application.module() {
         userLibraryRepository = userLibraryRepository
     )
 
-    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, translationService, openRouterClient)
+    configureRouting(authService, systemConfigRepository, mirrorService, searchService, libraryService, downloadService, conversionService, userSettingsRepository, deliveryService, activityLogService, downloadJobRepository, activityLogRepository, requestLogRepository, bookDescriptionService, translationService, openRouterClient.takeIf { it.isConfigured })
 
     val mirrorRefreshIntervalMs = mirrorConfig.refreshIntervalHours * 3_600_000L
     launch {
+        jobRetentionService.failInterruptedSearchJobs()
+        runRetentionSweep(jobRetentionService)
         mirrorService.refreshMirrors()
+        downloadService.resumePendingJobs()
         while (true) {
             delay(mirrorRefreshIntervalMs)
+            runRetentionSweep(jobRetentionService)
             try {
                 mirrorService.refreshMirrors()
             } catch (e: Exception) {
                 log.error("Mirror refresh failed", e)
             }
         }
+    }
+}
+
+private fun Application.runRetentionSweep(jobRetentionService: JobRetentionService) {
+    try {
+        jobRetentionService.sweep()
+    } catch (e: Exception) {
+        log.error("Job retention sweep failed", e)
     }
 }
 
@@ -334,8 +389,9 @@ private fun Application.configureRouting(
     downloadJobRepository: DownloadJobRepository,
     activityLogRepository: ActivityLogRepository,
     requestLogRepository: RequestLogRepository,
+    bookDescriptionService: BookDescriptionService,
     translationService: pl.fairydeck.booksearch.service.TranslationService,
-    openRouterClient: pl.fairydeck.booksearch.infrastructure.OpenRouterClient?
+    openRouterClient: OpenRouterClient?
 ) {
     routing {
         healthRoutes()
@@ -344,7 +400,8 @@ private fun Application.configureRouting(
         translationRoutes(translationService, openRouterClient)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
-        libraryRoutes(libraryService, activityLogService)
+        bookRoutes(bookDescriptionService)
+        libraryRoutes(libraryService, downloadService, activityLogService)
         downloadRoutes(downloadService, downloadJobRepository, activityLogService)
         convertRoutes(conversionService, activityLogService)
         deliverRoutes(deliveryService, activityLogService)
@@ -368,5 +425,3 @@ private fun Application.configureRouting(
 
 @Serializable
 data class ErrorResponse(val status: Int, val message: String)
-
-val translationServiceKey = io.ktor.util.AttributeKey<pl.fairydeck.booksearch.service.TranslationService>("TranslationService")

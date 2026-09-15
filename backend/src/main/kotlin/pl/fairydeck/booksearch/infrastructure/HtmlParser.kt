@@ -13,9 +13,22 @@ object HtmlParser {
     private const val FORMAT_INFO_SELECTOR = "div.font-semibold.text-sm"
     private const val DOWNLOADS_PANEL_SELECTOR = "div#md5-panel-downloads"
     private const val SLOW_DOWNLOAD_LINK_SELECTOR = "a[href*=slow_download]"
+    private const val TORRENT_LINK_SELECTOR = "a[href*=/dyn/small_file/torrents/][href$=.torrent]"
     private const val NO_WAITLIST_MARKER = "no waitlist"
+    private const val DOWNLOAD_LINK_SELECTOR = "p.text-xl.font-bold a[href^=http]"
     private const val MD5_PREFIX_LENGTH = 12
     private val MD5_PATTERN = Regex("/md5/([a-f0-9]{32})")
+    /** Verified entries prefix the language with a check mark. */
+    private val LANGUAGE_DECORATION_PATTERN = Regex("""^[^\p{L}]+""")
+    private val LANGUAGE_PATTERN = Regex(""".+\[[a-z]{2,3}(-[A-Za-z]+)?\]""")
+    private val FILE_SIZE_PATTERN = Regex("""\d+(\.\d+)?\s?(B|KB|MB|GB)""", RegexOption.IGNORE_CASE)
+    private val YEAR_PATTERN = Regex("""(1[0-9]|20)\d{2}""")
+    private val KNOWN_FORMATS = setOf(
+        "epub", "pdf", "mobi", "azw3", "fb2", "fb2.zip", "djvu", "cbz", "cbr", "txt", "rtf", "doc", "docx"
+    )
+    private val WAIT_SECONDS_PATTERN = Regex("""waitSeconds\s*=\s*(\d+)""")
+    private val TORRENT_FILE_PATTERN = Regex("""file\s+[“"]([^”"]+)[”"]""")
+    private val TORRENT_EXTRACT_FILE_PATTERN = Regex("""\(extract\).*?file\s+[“"]([^”"]+)[”"]""")
 
     fun parseSearchResults(html: String): List<ParsedBookEntry> {
         if (html.isBlank()) return emptyList()
@@ -84,16 +97,31 @@ object HtmlParser {
 
     private fun parseFormatInfo(entry: Element): FormatInfo {
         val infoDiv = entry.selectFirst(FORMAT_INFO_SELECTOR) ?: return FormatInfo()
-        val parts = infoDiv.text().split("·").map { it.trim() }
+        val parts = infoDiv.text().split("·").map { it.trim() }.filter { it.isNotEmpty() }
 
-        // Actual format: "Polish [pl] · EPUB · 0.5MB · 2000 · Book (fiction) · /lgli/lgrs"
-        // Order: language · format · fileSize · year · type · source
+        // The line is positional only by convention and its shape drifts: a leading
+        // metadata language was added ahead of the book language, and the year is
+        // omitted for entries that have none. Match on token content instead.
+        // Current: "English [en] · Polish [pl] · EPUB · 0.2MB · 1987 · Book (fiction) · /upload"
+        // Legacy:  "German [de] · PDF · 3.5MB · 2000 · Book (fiction) · /lgli/lgrs"
+        val formatIndex = parts.indexOfFirst { it.lowercase() in KNOWN_FORMATS }
+
         return FormatInfo(
-            language = parts.getOrElse(0) { "" },
-            format = parts.getOrElse(1) { "" }.lowercase(),
-            fileSize = parts.getOrElse(2) { "" },
-            year = parts.getOrElse(3) { "" }
+            language = languageBefore(parts, formatIndex),
+            format = parts.getOrNull(formatIndex)?.lowercase() ?: "",
+            fileSize = parts.firstOrNull(FILE_SIZE_PATTERN::matches) ?: "",
+            year = parts.firstOrNull(YEAR_PATTERN::matches) ?: ""
         )
+    }
+
+    /**
+     * The book language is the last bracketed language token ahead of the format,
+     * so an extra leading language field does not displace it.
+     */
+    private fun languageBefore(parts: List<String>, formatIndex: Int): String {
+        val candidates = if (formatIndex > 0) parts.subList(0, formatIndex) else parts
+        val language = candidates.lastOrNull(LANGUAGE_PATTERN::matches) ?: return ""
+        return language.replace(LANGUAGE_DECORATION_PATTERN, "").trim()
     }
 
     fun parseDetailPageDownloadLinks(html: String): List<DownloadLink> {
@@ -104,7 +132,7 @@ object HtmlParser {
 
         val links = panel.select(SLOW_DOWNLOAD_LINK_SELECTOR).map { anchor ->
             val url = anchor.attr("href")
-            val text = anchor.text()
+            val text = anchor.parent()?.text().orEmpty().ifBlank { anchor.text() }
             val noWaitlist = text.contains(NO_WAITLIST_MARKER, ignoreCase = true)
             DownloadLink(url = url, label = text.trim(), noWaitlist = noWaitlist)
         }
@@ -118,11 +146,72 @@ object HtmlParser {
         val md5Prefix = md5.take(MD5_PREFIX_LENGTH)
         val document = Jsoup.parse(html)
 
+        val structuredDownloadUrl = document.selectFirst(DOWNLOAD_LINK_SELECTOR)
+            ?.attr("href")
+            ?.takeIf { it.startsWith("http") }
+        if (structuredDownloadUrl != null) return structuredDownloadUrl
+
         return document.select("a[href]")
             .map { it.attr("href") }
             .firstOrNull { href ->
                 href.contains(md5Prefix) && href.startsWith("http")
             }
+    }
+
+    fun parseSlowDownloadWaitSeconds(html: String): Int? {
+        if (html.isBlank()) return null
+
+        val document = Jsoup.parse(html)
+        document.selectFirst("span.js-partner-countdown")
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+            ?.let { return it }
+
+        return WAIT_SECONDS_PATTERN.find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+    }
+
+    fun parseTorrentDownloadLinks(html: String): List<TorrentDownloadLink> {
+        if (html.isBlank()) return emptyList()
+
+        val document = Jsoup.parse(html)
+        return document.select(TORRENT_LINK_SELECTOR)
+            .mapNotNull { anchor ->
+                val containerText = anchor.closest("li")?.text().orEmpty()
+                val files = TORRENT_FILE_PATTERN.findAll(containerText)
+                    .map { it.groupValues[1].trim() }
+                    .filter { it.isNotBlank() }
+                    .toList()
+                val fileLevel1 = files.firstOrNull() ?: return@mapNotNull null
+                val fileLevel2 = TORRENT_EXTRACT_FILE_PATTERN.find(containerText)
+                    ?.groupValues
+                    ?.getOrNull(1)
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+
+                TorrentDownloadLink(
+                    torrentUrl = anchor.attr("href"),
+                    fileLevel1 = fileLevel1,
+                    fileLevel2 = fileLevel2
+                )
+            }
+            .distinctBy { Triple(it.torrentUrl, it.fileLevel1, it.fileLevel2) }
+    }
+
+    fun isAnnaArchivePage(html: String): Boolean {
+        if (html.isBlank()) return false
+
+        val document = Jsoup.parse(html)
+        val hasExpectedTitle = document.title()
+            .contains("Anna", ignoreCase = true)
+        val hasSearchNavigation = document.select(
+            "form[action*=search], a[href^=/search], input[name=q]"
+        ).isNotEmpty()
+
+        return hasExpectedTitle && hasSearchNavigation
     }
 
     private data class FormatInfo(

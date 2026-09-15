@@ -20,6 +20,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
         page: 1,
         pageSize: 20,
         totalPages: 0,
+        canRegenerate: false,
         totalItems: 0,
       }),
       removeFromLibrary: vi.fn(),

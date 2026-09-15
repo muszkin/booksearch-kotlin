@@ -20,6 +20,9 @@ const props = defineProps<{
   pocketbookEnabled: boolean
   deliveryLoading?: boolean
   translationActive?: boolean
+  descriptionLoading?: boolean
+  descriptionMissing?: boolean
+  canRegenerate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,9 +32,13 @@ const emit = defineEmits<{
   'deliver': [device: string]
   'remove': []
   'translate': []
+  'regenerate-description': []
 }>()
 
 const hasFile = computed(() => !!props.book.filePath)
+const isGenerated = computed(() => props.book.descriptionSource === 'openrouter')
+const hasDescription = computed(() => props.book.description.trim().length > 0)
+const showDescription = computed(() => hasDescription.value || props.descriptionLoading === true || props.descriptionMissing === true)
 
 const isDownloadActive = computed(() => {
   if (!props.downloadStatus) return false
@@ -134,6 +141,18 @@ const formattedDate = computed(() => {
           Converting to {{ conversionStatus.targetFormat }}...
         </p>
       </div>
+    </div>
+
+    <div v-if="showDescription" class="px-4 pb-4 text-sm text-zinc-300" :aria-busy="props.descriptionLoading === true">
+      <p v-if="!hasDescription && props.descriptionLoading" class="text-zinc-500">Looking for a description…</p>
+      <p v-else-if="!hasDescription" class="text-zinc-500">No description available for this book.</p>
+      <template v-else>
+        <p v-if="isGenerated" class="mb-1 text-xs text-amber-400">AI-generated summary — may be inaccurate</p>
+        <p class="whitespace-pre-line">{{ props.book.description }}</p>
+      </template>
+      <button v-if="props.canRegenerate" type="button" class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200 disabled:opacity-50" :disabled="props.descriptionLoading" @click="emit('regenerate-description')">
+        {{ hasDescription ? 'Wrong description? Regenerate with AI' : 'Generate one with AI' }}
+      </button>
     </div>
 
     <div class="flex items-center gap-2 px-4 py-3 border-t border-zinc-700 flex-wrap">

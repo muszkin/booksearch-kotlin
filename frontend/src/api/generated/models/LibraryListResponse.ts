@@ -9,5 +9,9 @@ export type LibraryListResponse = {
     page: number;
     pageSize: number;
     totalPages: number;
+    /**
+     * False when no OpenRouter key is configured, so the interface can hide the generate controls.
+     */
+    canRegenerate: boolean;
 };
 

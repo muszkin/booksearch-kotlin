@@ -50,7 +50,7 @@ class GapAnalysisPhase2Test {
     fun shouldReturn400WhenMaxPagesIsZero() = testApp {
         val token = registerAndGetToken()
 
-        val response = client.get("/api/search?q=test&maxPages=0") {
+        val response = client.post("/api/search?q=test&maxPages=0") {
             header(HttpHeaders.Authorization, "Bearer $token")
         }
 
@@ -64,7 +64,7 @@ class GapAnalysisPhase2Test {
     fun shouldReturn400WhenMaxPagesExceedsLimit() = testApp {
         val token = registerAndGetToken()
 
-        val response = client.get("/api/search?q=test&maxPages=11") {
+        val response = client.post("/api/search?q=test&maxPages=11") {
             header(HttpHeaders.Authorization, "Bearer $token")
         }
 
@@ -124,7 +124,7 @@ class GapAnalysisPhase2Test {
         val bookRepository = BookRepository(dsl)
         val scraperService = io.mockk.mockk<pl.fairydeck.booksearch.service.ScraperService>()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
+        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, pl.fairydeck.booksearch.repository.SearchJobRepository(dsl))
 
         val scraped = listOf(
             ParsedBookEntry(
@@ -158,7 +158,7 @@ class GapAnalysisPhase2Test {
         val bookRepository = BookRepository(dsl)
         val scraperService = io.mockk.mockk<pl.fairydeck.booksearch.service.ScraperService>()
         val userLibraryRepository = UserLibraryRepository(dsl)
-        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository)
+        val searchService = SearchService(scraperService, bookRepository, userLibraryRepository, pl.fairydeck.booksearch.repository.SearchJobRepository(dsl))
 
         val testBook = ParsedBookEntry(
             md5 = "owned0000000000000000000000001",

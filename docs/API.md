@@ -29,7 +29,12 @@ All authenticated endpoints require the `Authorization: Bearer <accessToken>` he
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/search` | Yes | Search Anna's Archive. Query params: `q`, `lang` (pl/en/de), `format` (epub/mobi/pdf). |
+| POST | `/api/search` | Yes | Start an async search job against Anna's Archive. Query params: `q`, `lang` (pl/en/de), `ext` (epub/mobi/pdf), `maxPages` (1-10, default 3). Returns `202` with a `jobId`. |
+| GET | `/api/search/status/{jobId}` | Yes | Poll a search job. Status is one of `queued`, `scraping`, `completed`, `failed`; results are returned once completed. |
+
+Search is asynchronous because scraping runs through FlareSolverr's headless browser and
+routinely takes longer than the 120 second proxy read timeout, which surfaced as Cloudflare
+`error 524` in production.
 
 ## Library
 

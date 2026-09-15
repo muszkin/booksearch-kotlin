@@ -17,6 +17,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
     DownloadService: {
       startDownload: vi.fn(),
       getDownloadStatus: vi.fn(),
+      getDownloadJobs: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
     },
     ConvertService: {
       startConversion: vi.fn(),
@@ -47,6 +48,7 @@ const mockBook: LibraryBook = {
   publisher: 'Publisher',
   year: '2025',
   description: 'A test book',
+  descriptionSource: 'annas-archive',
 }
 
 function createTestRouter() {

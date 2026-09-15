@@ -2,6 +2,7 @@
 import { ref, reactive, watch, computed, onMounted } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import SearchToolbar from '@/components/search/SearchToolbar.vue'
+import SearchFilters from '@/components/search/SearchFilters.vue'
 import BookCard from '@/components/search/BookCard.vue'
 import BookCardSkeleton from '@/components/search/BookCardSkeleton.vue'
 import SelectionDrawer from '@/components/search/SelectionDrawer.vue'
@@ -13,7 +14,7 @@ import { useSearchStore } from '@/stores/search'
 import { useSelectionStore } from '@/stores/selection'
 import { useSettingsStore } from '@/stores/settings'
 import { useDownloadQueueStore } from '@/stores/download-queue'
-import { DownloadService } from '@/api/generated'
+import { DownloadService, SearchService } from '@/api/generated'
 
 const searchStore = useSearchStore()
 const selectionStore = useSelectionStore()
@@ -22,6 +23,65 @@ const queueStore = useDownloadQueueStore()
 
 const drawerOpen = ref(false)
 const downloadLoading = reactive(new Map<string, boolean>())
+
+interface DescriptionState {
+  open: boolean
+  loading: boolean
+  missing: boolean
+  text?: string
+  source?: string
+  isbn?: string
+  canRegenerate?: boolean
+}
+
+const descriptions = reactive(new Map<string, DescriptionState>())
+
+async function handleRegenerateDescription(md5: string) {
+  const state = descriptions.get(md5)
+  if (!state) return
+
+  state.loading = true
+  state.missing = false
+  try {
+    const result = await SearchService.regenerateBookDescription(md5)
+    state.text = result.description
+    state.source = result.source
+    state.isbn = result.isbn ?? undefined
+    state.canRegenerate = result.canRegenerate
+  } catch {
+    // The stored description is left as it was; say nothing louder than that.
+    state.missing = state.text === undefined
+  } finally {
+    state.loading = false
+  }
+}
+
+async function handleToggleDescription(md5: string) {
+  const existing = descriptions.get(md5)
+  if (existing) {
+    existing.open = !existing.open
+    return
+  }
+
+  descriptions.set(md5, { open: true, loading: true, missing: false })
+  // Read the entry back: the map hands out a reactive proxy, and only writes
+  // through that proxy re-render. Mutating the object we just passed in would
+  // update the data but leave the card showing its loading state.
+  const state = descriptions.get(md5)!
+
+  try {
+    const result = await SearchService.getBookDescription(md5)
+    state.text = result.description
+    state.source = result.source
+    state.isbn = result.isbn ?? undefined
+    state.canRegenerate = result.canRegenerate
+  } catch {
+    // A missing description is an ordinary outcome, not an error worth shouting about.
+    state.missing = true
+  } finally {
+    state.loading = false
+  }
+}
 const downloadErrors = reactive(new Map<string, string>())
 
 const kindleEnabled = computed(() => settingsStore.isConfigured('kindle'))
@@ -152,6 +212,28 @@ function handleDrawerClose() {
     @search="handleSearch"
   />
 
+  <SearchFilters
+    v-if="searchStore.hasResults && !searchStore.loading"
+    :facets="searchStore.facets"
+    :hidden-authors="searchStore.hiddenAuthors"
+    :hidden-publishers="searchStore.hiddenPublishers"
+    :hidden-formats="searchStore.hiddenFormats"
+    :hidden-languages="searchStore.hiddenLanguages"
+    :sort-direction="searchStore.sortDirection"
+    :visible-count="searchStore.visibleCount"
+    :total-count="searchStore.totalResults"
+    @toggle-author="searchStore.hideAuthor"
+    @toggle-publisher="searchStore.hidePublisher"
+    @toggle-format="searchStore.hideFormat"
+    @toggle-language="searchStore.hideLanguage"
+    @set-authors="searchStore.setAuthorsHidden($event.values, $event.hidden)"
+    @set-publishers="searchStore.setPublishersHidden($event.values, $event.hidden)"
+    @set-formats="searchStore.setFormatsHidden($event.values, $event.hidden)"
+    @set-languages="searchStore.setLanguagesHidden($event.values, $event.hidden)"
+    @update:sort-direction="searchStore.sortDirection = $event"
+    @clear="searchStore.clearHidden"
+  />
+
   <div class="p-6" :class="{ 'lg:mr-80': drawerOpen }">
     <!-- Error state -->
     <div v-if="searchStore.error">
@@ -176,11 +258,8 @@ function handleDrawerClose() {
 
     <!-- Results state -->
     <div v-else-if="searchStore.hasResults">
-      <p class="text-sm text-zinc-400 mb-4" aria-live="polite">
-        {{ searchStore.totalResults }} results found
-      </p>
       <div class="flex flex-col gap-4">
-        <div v-for="book in searchStore.results" :key="book.md5">
+        <div v-for="book in searchStore.visibleResults" :key="book.md5">
           <AlertMessage
             v-if="downloadErrors.get(book.md5)"
             variant="error"
@@ -194,6 +273,15 @@ function handleDrawerClose() {
             :delivery-loading="downloadLoading.get(book.md5) ?? false"
             :kindle-enabled="kindleEnabled"
             :pocketbook-enabled="pocketbookEnabled"
+            :description-open="descriptions.get(book.md5)?.open ?? false"
+            :description-loading="descriptions.get(book.md5)?.loading ?? false"
+            :description-missing="descriptions.get(book.md5)?.missing ?? false"
+            :description="descriptions.get(book.md5)?.text"
+            :description-source="descriptions.get(book.md5)?.source"
+            :isbn="descriptions.get(book.md5)?.isbn"
+            :can-regenerate="descriptions.get(book.md5)?.canRegenerate ?? false"
+            @toggle-description="handleToggleDescription(book.md5)"
+            @regenerate-description="handleRegenerateDescription(book.md5)"
             @toggle-select="handleToggleSelect(book)"
             @download="handleDownload(book.md5)"
             @deliver="handleDeliver(book.md5, $event)"

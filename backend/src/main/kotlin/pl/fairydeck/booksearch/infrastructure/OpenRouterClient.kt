@@ -18,13 +18,35 @@ import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import kotlinx.coroutines.CancellationException
 import io.ktor.client.plugins.HttpTimeout
+import org.slf4j.LoggerFactory
 
 class OpenRouterClient(
     private val config: OpenRouterConfig,
-    private val httpClientOverride: HttpClient? = null
+    private val httpClientOverride: HttpClient? = null,
+    private val settings: () -> DescriptionPromptSettings = { DescriptionPromptSettings.DEFAULT }
 ) {
+    private val logger = LoggerFactory.getLogger(OpenRouterClient::class.java)
     private val json = Json { ignoreUnknownKeys = true }
     private val httpClient = httpClientOverride ?: HttpClient(OkHttp) { install(HttpTimeout) { requestTimeoutMillis = 120_000 } }
+    val isConfigured: Boolean get() = config.apiKey != null
+
+    suspend fun describeBook(title: String, author: String): String? {
+        val apiKey = config.apiKey ?: return null
+        val prompt = settings()
+        val response = try {
+            httpClient.post("${config.baseUrl.trimEnd('/')}/api/v1/chat/completions") {
+                header(HttpHeaders.Authorization, "Bearer $apiKey")
+                contentType(ContentType.Application.Json)
+                setBody(json.encodeToString(OpenRouterDescriptionRequest(config.model, listOf(
+                    OpenRouterRequestMessage("system", prompt.style.trim() + "\n" + GUARD),
+                    OpenRouterRequestMessage("user", "Title: $title\nAuthor: $author")
+                ))))
+            }
+        } catch (_: Exception) { return null }
+        if (!response.status.isSuccess()) return null
+        val answer = try { decode<OpenRouterCompletionResponse>(response.bodyAsText()).choices.firstOrNull()?.message?.content?.trim().orEmpty() } catch (_: OpenRouterException) { return null }
+        return answer.takeIf { isUsable(it, prompt.minLength) }
+    }
 
     suspend fun listFreeTextModels(): List<OpenRouterModel> {
         return fetchModels()
@@ -90,7 +112,7 @@ class OpenRouterClient(
     }
 
     private fun io.ktor.client.request.HttpRequestBuilder.withAuth() {
-        header(HttpHeaders.Authorization, "Bearer ${config.apiKey}")
+        header(HttpHeaders.Authorization, "Bearer ${config.apiKey ?: throw OpenRouterException("OpenRouter is not configured")}")
         accept(ContentType.Application.Json)
     }
 
@@ -132,6 +154,9 @@ class OpenRouterClient(
     )
 
     @Serializable
+    private data class OpenRouterDescriptionRequest(val model: String, val messages: List<OpenRouterRequestMessage>)
+
+    @Serializable
     private data class OpenRouterProvider(
         @SerialName("allow_fallbacks") val allowFallbacks: Boolean
     )
@@ -150,8 +175,16 @@ class OpenRouterClient(
 
     private fun responseError(status: Int) = OpenRouterException("OpenRouter request failed with status $status", retryable = status == 429 || status in 500..599)
 
+    private fun isUsable(answer: String, minLength: Int): Boolean = answer.length >= minLength && !answer.equals(UNKNOWN_MARKER, true) && HEDGING_MARKERS.none { answer.contains(it, true) }
+
     @Serializable
     private data class OpenRouterChoice(val message: OpenRouterMessage? = null)
+
+    companion object {
+        const val UNKNOWN_MARKER = "UNKNOWN"
+        val HEDGING_MARKERS = listOf("i don't have", "i do not have", "i'm not familiar", "i am not familiar", "no information", "unable to find", "cannot find", "as an ai")
+        val GUARD = listOf("Reply with exactly the word UNKNOWN if you are not confident you know this", "specific book. Never guess from the title alone, and never invent a plot.", "Reply with the description only, with no preamble and no commentary.").joinToString("\n")
+    }
 }
 
 data class OpenRouterModel(val id: String, val name: String)
@@ -159,3 +192,7 @@ data class OpenRouterModel(val id: String, val name: String)
 data class OpenRouterCompletion(val content: String, val inputTokens: Int = 0, val outputTokens: Int = 0)
 
 class OpenRouterException(message: String, val retryable: Boolean = false, val code: String = "translation_request_failed") : RuntimeException(message)
+
+data class DescriptionPromptSettings(val style: String, val minLength: Int) {
+    companion object { val DEFAULT = DescriptionPromptSettings("You describe books for a library catalogue.", 80) }
+}

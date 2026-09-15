@@ -75,6 +75,7 @@ async function handleBatchDownload() {
 
 onMounted(() => {
   store.fetchLibrary(1)
+  store.resolveMissingDescriptions()
   store.fetchDeviceSettings()
   store.fetchDeliveries()
   void translation.restore()
@@ -87,11 +88,17 @@ onUnmounted(() => {
 
 function handleRetry() {
   store.fetchLibrary(store.pagination.page)
+  store.resolveMissingDescriptions()
 }
 
 function handlePageChange(page: number) {
   store.fetchLibrary(page)
+  store.resolveMissingDescriptions()
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function handleRegenerateDescription(bookMd5: string) {
+  store.regenerateDescription(bookMd5)
 }
 
 function handleDownloadFile(bookId: number) {
@@ -225,12 +232,16 @@ function handleRemove(bookId: number) {
               :pocketbook-enabled="store.deviceSettings.pocketbook"
               :delivery-loading="deliveryLoading.get(book.id) ?? false"
               :translation-active="translation.restoring || !!translation.discoveryError || ['queued', 'running', 'paused'].includes(translation.jobForLibrary(book.id)?.status ?? '')"
+              :description-loading="store.isDescriptionLoading(book.bookMd5)"
+              :description-missing="store.isDescriptionMissing(book.bookMd5)"
+              :can-regenerate="store.canRegenerate"
               @download-file="handleDownloadFile(book.id)"
               @start-download="handleStartDownload(book.bookMd5)"
               @convert="handleConvert(book.id, $event)"
               @deliver="handleDeliver(book.id, $event)"
               @remove="handleRemove(book.id)"
               @translate="openTranslation(book)"
+              @regenerate-description="handleRegenerateDescription(book.bookMd5)"
             />
             <TranslationProgress
               v-for="job in [translation.jobForLibrary(book.id)].filter((job) => !!job)" :key="job.jobId"

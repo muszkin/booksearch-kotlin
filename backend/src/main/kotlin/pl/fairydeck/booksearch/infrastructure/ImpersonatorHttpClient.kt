@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.atomic.AtomicLong
 
 class ImpersonatorHttpClient(private val config: ScraperConfig) {
@@ -91,7 +92,11 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         }
     }
 
-    suspend fun fetchBinary(url: String, cookies: Map<String, String>): ByteArray {
+    suspend fun fetchBinary(
+        url: String,
+        cookies: Map<String, String>,
+        userAgent: String = config.userAgent
+    ): ByteArray {
         enforceRateLimit()
 
         var lastException: Exception? = null
@@ -104,7 +109,7 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
 
                     val request = Request.Builder()
                         .url(url)
-                        .header("User-Agent", config.userAgent)
+                        .header("User-Agent", userAgent.ifBlank { config.userAgent })
                         .header("Accept", "*/*")
                         .header("Cookie", cookieHeader)
                         .build()
@@ -112,18 +117,27 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
                     val response = plainHttpClient.newCall(request).execute()
 
                     if (!response.isSuccessful) {
-                        throw IOException("HTTP ${response.code} downloading $url")
+                        throw IOException(
+                            "HTTP ${response.code} downloading file from ${safeHost(url)}"
+                        )
                     }
 
                     response.body?.bytes()
-                        ?: throw IOException("Empty response body downloading $url")
+                        ?: throw IOException(
+                            "Empty response body downloading file from ${safeHost(url)}"
+                        )
                 }
 
                 lastRequestTime.set(System.currentTimeMillis())
                 return result
 
             } catch (e: IOException) {
-                logger.error("Binary download failed on attempt {} for URL: {}", attempt + 1, url, e)
+                logger.error(
+                    "Binary download failed on attempt {} from host {}: {}",
+                    attempt + 1,
+                    safeHost(url),
+                    e.message
+                )
                 lastException = e
                 if (attempt < config.maxRetries) {
                     delay(delayMs)
@@ -133,24 +147,35 @@ class ImpersonatorHttpClient(private val config: ScraperConfig) {
         }
 
         throw ScraperException(
-            "Failed to download binary from $url after ${config.maxRetries + 1} attempts",
+            "Failed to download binary from ${safeHost(url)} after ${config.maxRetries + 1} attempts",
             lastException
         )
     }
 
+    private fun safeHost(url: String): String =
+        runCatching { URI(url).host }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "remote host"
+
     companion object {
-        private val CHALLENGE_MARKERS = listOf(
+        private val STRONG_CHALLENGE_MARKERS = listOf(
             "DDoS protection by",
-            "DDoS-Guard",
             "Please Wait... | Cloudflare",
             "Checking your browser",
             "cf-browser-verification",
             "jschl-answer",
             "__ddg_challenge"
         )
+        private val CHALLENGE_TITLE = Regex(
+            """<title[^>]*>\s*(?:DDoS-Guard|Just a moment(?:\.\.\.)?|Please Wait\.\.\.\s*\|\s*Cloudflare)[^<]*</title>""",
+            RegexOption.IGNORE_CASE
+        )
 
         fun isChallengePage(html: String): Boolean {
-            return CHALLENGE_MARKERS.any { marker -> html.contains(marker, ignoreCase = true) }
+            return STRONG_CHALLENGE_MARKERS.any { marker ->
+                html.contains(marker, ignoreCase = true)
+            } || CHALLENGE_TITLE.containsMatchIn(html)
         }
     }
 }

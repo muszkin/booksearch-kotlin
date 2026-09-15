@@ -59,6 +59,48 @@ In Portainer, the named volume is created automatically. To use a specific host 
 
 The SQLite database and library files persist across redeployments through the named volume.
 
+## FlareSolverr Recovery
+
+The stack includes an `autoheal` service that monitors only containers labelled
+`booksearch.autoheal=true`. Every 30 minutes FlareSolverr's health check opens a
+small test page through its real browser API. Two consecutive failures mark the
+container unhealthy, and autoheal restarts it.
+
+This is health-based rather than a fixed 24-hour restart. A scheduled restart
+`ANNA_ARCHIVE_API_KEY` is required for search to work at all. DDoS-Guard serves
+`/search` only to signed-in members, and FlareSolverr — which is deprecated and
+applies Cloudflare logic to DDoS-Guard — no longer solves that challenge. With the
+key set, the backend signs in once and fetches search pages over plain HTTP in
+seconds. Without it, search falls back to FlareSolverr and will fail.
+
+can interrupt an active book download while doing nothing for source-specific
+DDoS challenges. The backend handles those separately with a bounded source
+pipeline:
+
+1. If `ANNA_ARCHIVE_API_KEY` is configured, use the stable member JSON API and
+   verify the downloaded file against its Anna's Archive MD5. If resolving,
+   transferring, or verifying the fast download fails, continue with the
+   browser flow.
+2. Open each detail page in one serialized, persistent FlareSolverr session and
+   try the no-waitlist slow-download links. FlareSolverr rotates that session
+   after `FLARESOLVERR_SESSION_TTL_MINUTES` (24 hours by default).
+3. If DDoS-Guard blocks the slow route, download the exact file from the public
+   torrent metadata exposed by the detail page.
+
+The torrent fallback uses `aria2`, selects only the matching file, verifies its
+size and MD5, never seeds, and removes its staging directory after completion.
+Because BitTorrent verifies whole pieces, temporary disk and network usage can
+be larger than the final ebook. A transfer with no peers fails after
+`TORRENT_STALL_TIMEOUT_SECONDS` instead of leaving the progress bar stuck.
+
+The production Compose file pins `MIRROR_DOMAINS` to the current `.gd`, `.pk`,
+and `.gl` domains so an older `.env` file cannot re-enable retired mirrors.
+
+`autoheal` needs the Docker socket mounted in order to restart the labelled
+container. Do not change `AUTOHEAL_CONTAINER_LABEL` to `all`; the
+`booksearch.autoheal` label deliberately prevents it from managing unrelated
+Portainer stacks.
+
 ## Production Considerations
 
 - Remove the `mailpit` service from the compose file (or simply do not expose its ports) and set `SMTP_HOST` / `SMTP_PORT` to your real mail server.

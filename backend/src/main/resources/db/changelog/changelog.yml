@@ -24,6 +24,12 @@ databaseChangeLog:
   - include:
       file: db/changelog/migrations/012-create-request-logs-table.sql
   - include:
-      file: db/changelog/migrations/013-create-translation-jobs-table.sql
+      file: db/changelog/migrations/013-create-download-sources-table.sql
   - include:
-      file: db/changelog/migrations/014-create-translation-chapters-table.sql
+      file: db/changelog/migrations/014-create-search-jobs-table.sql
+  - include:
+      file: db/changelog/migrations/015-add-book-description-metadata.sql
+  - include:
+      file: db/changelog/migrations/016-create-translation-jobs-table.sql
+  - include:
+      file: db/changelog/migrations/017-create-translation-chapters-table.sql

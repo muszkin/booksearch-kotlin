@@ -8,6 +8,33 @@ import java.time.Instant
 
 class BookRepository(private val dsl: DSLContext) {
 
+    fun saveDescription(md5: String, description: String, source: String, isbn: String?) {
+        val update = dsl.update(BOOKS)
+            .set(BOOKS.DESCRIPTION, description)
+            .set(BOOKS.DESCRIPTION_SOURCE, source)
+            .set(BOOKS.DESCRIPTION_CHECKED_AT, Instant.now().toString())
+
+        // A later lookup without an ISBN must not erase one an earlier lookup found.
+        if (isbn != null) update.set(BOOKS.ISBN, isbn)
+
+        update.where(BOOKS.MD5.eq(md5)).execute()
+    }
+
+    fun saveIsbn(md5: String, isbn: String) {
+        dsl.update(BOOKS)
+            .set(BOOKS.ISBN, isbn)
+            .where(BOOKS.MD5.eq(md5))
+            .execute()
+    }
+
+    /** Remembers that a lookup ran and found nothing, so it is not repeated on every click. */
+    fun markDescriptionChecked(md5: String) {
+        dsl.update(BOOKS)
+            .set(BOOKS.DESCRIPTION_CHECKED_AT, Instant.now().toString())
+            .where(BOOKS.MD5.eq(md5))
+            .execute()
+    }
+
     fun upsertFromSearch(books: List<ParsedBookEntry>) {
         val now = Instant.now().toString()
         dsl.batch(
@@ -36,7 +63,8 @@ class BookRepository(private val dsl: DSLContext) {
                     .set(BOOKS.COVER_URL, book.coverUrl)
                     .set(BOOKS.PUBLISHER, book.publisher)
                     .set(BOOKS.YEAR, book.year)
-                    .set(BOOKS.DESCRIPTION, book.description)
+                    // DESCRIPTION is deliberately left alone: search results never carry
+                    // one, so copying the blank value would wipe a resolved description.
                     .set(BOOKS.INDEXED_AT, now)
             }
         ).execute()

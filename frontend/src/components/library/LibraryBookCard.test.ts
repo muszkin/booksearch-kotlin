@@ -24,6 +24,7 @@ function createBook(overrides: Partial<LibraryBook> = {}): LibraryBook {
     publisher: 'Test Publisher',
     year: '2024',
     description: 'A test book',
+    descriptionSource: 'annas-archive',
     ...overrides,
   }
 }
@@ -112,6 +113,55 @@ describe('LibraryBookCard', () => {
     expect(wrapper.find('[data-testid="send-pocketbook-btn"]').exists()).toBe(true)
   })
 
+  it('disables file actions and explains that download is still in progress', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ filePath: null }),
+        downloadStatus: {
+          jobId: 7,
+          status: 'fetching_slow_download',
+          progress: 40,
+        },
+        kindleEnabled: true,
+        pocketbookEnabled: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="send-kindle-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="convert-mobi-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="download-file-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
+      'still downloading',
+    )
+  })
+
+  it('keeps a failed download visible and offers retry without enabling delivery', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ filePath: null }),
+        downloadStatus: {
+          jobId: 8,
+          status: 'failed',
+          progress: 40,
+          error: 'Download challenge timed out',
+        },
+        kindleEnabled: false,
+        pocketbookEnabled: true,
+      },
+    })
+
+    expect(wrapper.text()).toContain('Download challenge timed out')
+    expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
+      'Download failed',
+    )
+  })
+
   it('shows delivery indicators when deliveries exist', () => {
     const wrapper = mount(LibraryBookCard, {
       props: {
@@ -169,5 +219,80 @@ describe('LibraryBookCard', () => {
 
     await wrapper.find('[data-testid="remove-btn"]').trigger('click')
     expect(wrapper.emitted('remove')).toHaveLength(1)
+  })
+
+  it('shows the stored description without asking the reader to expand anything', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: 'A sweeping tale of nothing much.' }),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'A sweeping tale of nothing much.',
+    )
+    expect(wrapper.find('[data-testid="description-generated-label"]').exists()).toBe(false)
+  })
+
+  it('labels a generated description so it is not mistaken for publisher copy', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: 'Guessed at.', descriptionSource: 'openrouter' }),
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-generated-label"]').exists()).toBe(true)
+  })
+
+  it('offers regeneration only when a key is configured', () => {
+    const withKey = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: true },
+    })
+    const withoutKey = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: false },
+    })
+
+    expect(withKey.find('[data-testid="description-regenerate"]').exists()).toBe(true)
+    expect(withoutKey.find('[data-testid="description-regenerate"]').exists()).toBe(false)
+  })
+
+  it('emits regenerate-description when the reader asks for a fresh one', async () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: { ...defaultProps, canRegenerate: true },
+    })
+
+    await wrapper.find('[data-testid="description-regenerate"]').trigger('click')
+
+    expect(wrapper.emitted('regenerate-description')).toHaveLength(1)
+  })
+
+  it('reports the lookup while a description is still being resolved', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: '', descriptionSource: '' }),
+        descriptionLoading: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'Looking for a description',
+    )
+  })
+
+  it('says so when the lookup came back with nothing', () => {
+    const wrapper = mount(LibraryBookCard, {
+      props: {
+        ...defaultProps,
+        book: createBook({ description: '', descriptionSource: '' }),
+        descriptionMissing: true,
+      },
+    })
+
+    expect(wrapper.find('[data-testid="description-body"]').text()).toContain(
+      'No description available',
+    )
   })
 })

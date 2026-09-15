@@ -5,22 +5,23 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 import pl.fairydeck.booksearch.models.ChangePasswordRequest
 import pl.fairydeck.booksearch.models.CreateUserRequest
 import pl.fairydeck.booksearch.models.StopImpersonationRequest
 import pl.fairydeck.booksearch.models.ToggleRegistrationRequest
-import pl.fairydeck.booksearch.service.AuthService
 import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
 import pl.fairydeck.booksearch.models.TranslationConfigRequest
 import pl.fairydeck.booksearch.models.TranslationConfigResponse
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
+import pl.fairydeck.booksearch.service.AuthService
 
-fun Route.adminRoutes(authService: AuthService, systemConfig: SystemConfigRepository, openRouter: OpenRouterClient?) {
+fun Route.adminRoutes(authService: AuthService, systemConfigRepository: SystemConfigRepository, openRouter: OpenRouterClient?) {
     authenticate("jwt") {
         route("/api/admin") {
             get("/translation/config") {
                 requireSuperAdmin(call)
-                val modelId = systemConfig.getTranslationDefaultModel()
+                val modelId = systemConfigRepository.getTranslationDefaultModel()
                 val configured = openRouter != null && !modelId.isNullOrBlank()
                 val eligible = if (!configured) false else try {
                     freeTranslationModels(openRouter).any { it.id == modelId }
@@ -34,8 +35,42 @@ fun Route.adminRoutes(authService: AuthService, systemConfig: SystemConfigReposi
                 if (request.defaultModelId.isBlank() || freeTranslationModels(openRouter).none { it.id == request.defaultModelId }) {
                     throw ValidationException("Select a currently free text translation model")
                 }
-                systemConfig.setTranslationDefaultModel(request.defaultModelId)
+                systemConfigRepository.setTranslationDefaultModel(request.defaultModelId)
                 call.respond(TranslationConfigResponse(request.defaultModelId, configured = true, eligible = true))
+            }
+
+            get("/description-prompt") {
+                requireSuperAdmin(call)
+                call.respond(
+                    HttpStatusCode.OK,
+                    DescriptionPromptResponse(
+                        style = systemConfigRepository.getDescriptionStyle(),
+                        minLength = systemConfigRepository.getMinDescriptionLength(),
+                        isDefault = systemConfigRepository.isDescriptionStyleDefault(),
+                        guard = OpenRouterClient.GUARD
+                    )
+                )
+            }
+
+            put("/description-prompt") {
+                requireSuperAdmin(call)
+                val request = call.receive<DescriptionPromptRequest>()
+                if (request.style.isBlank()) {
+                    throw ValidationException("The description style must not be empty")
+                }
+                if (request.minLength < 0) {
+                    throw ValidationException("The minimum length must not be negative")
+                }
+                systemConfigRepository.setDescriptionStyle(request.style)
+                systemConfigRepository.setMinDescriptionLength(request.minLength)
+                call.respond(HttpStatusCode.OK, mapOf("message" to "Description prompt updated"))
+            }
+
+            delete("/description-prompt") {
+                requireSuperAdmin(call)
+                systemConfigRepository.resetDescriptionStyle()
+                systemConfigRepository.setMinDescriptionLength(SystemConfigRepository.DEFAULT_MIN_DESCRIPTION_LENGTH)
+                call.respond(HttpStatusCode.OK, mapOf("message" to "Description prompt reset to default"))
             }
 
             put("/registration") {
@@ -97,3 +132,18 @@ fun Route.adminRoutes(authService: AuthService, systemConfig: SystemConfigReposi
         }
     }
 }
+
+@Serializable
+data class DescriptionPromptResponse(
+    val style: String,
+    val minLength: Int,
+    val isDefault: Boolean,
+    /** Shown read-only so an administrator can see what is always appended. */
+    val guard: String
+)
+
+@Serializable
+data class DescriptionPromptRequest(
+    val style: String,
+    val minLength: Int
+)

@@ -21,7 +21,7 @@ RUN chmod +x gradlew \
 FROM eclipse-temurin:21-jre AS runtime
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends calibre \
+    && apt-get install -y --no-install-recommends aria2 calibre \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

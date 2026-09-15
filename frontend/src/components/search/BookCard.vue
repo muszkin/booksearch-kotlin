@@ -12,6 +12,13 @@ interface Props {
   deliveryLoading?: boolean
   kindleEnabled?: boolean
   pocketbookEnabled?: boolean
+  descriptionOpen?: boolean
+  descriptionLoading?: boolean
+  descriptionMissing?: boolean
+  description?: string
+  descriptionSource?: string
+  isbn?: string
+  canRegenerate?: boolean
 }
 
 const props = defineProps<Props>()
@@ -20,7 +27,16 @@ const emit = defineEmits<{
   'toggle-select': []
   download: []
   deliver: [device: string]
+  'toggle-description': []
+  'regenerate-description': []
 }>()
+
+/**
+ * A generated description is labelled. Anna's Archive holds a great many obscure titles a
+ * model can only guess at, and unlabelled guesswork sitting beside real publisher copy is
+ * indistinguishable from it.
+ */
+const isGenerated = computed(() => props.descriptionSource === 'openrouter')
 
 const borderColorMap: Record<string, string> = {
   exact: 'border-l-4 border-l-emerald-400',
@@ -134,6 +150,54 @@ function onCheckboxChange() {
         >
           To PocketBook
         </BaseButton>
+      </div>
+    </div>
+  
+    <div class="mt-3">
+      <button
+        type="button"
+        data-testid="description-toggle"
+        class="text-sm text-zinc-400 underline hover:text-zinc-200"
+        :aria-expanded="props.descriptionOpen === true"
+        @click="emit('toggle-description')"
+      >
+        {{ props.descriptionOpen ? 'Hide description' : 'Description' }}
+      </button>
+
+      <div
+        v-if="props.descriptionOpen"
+        data-testid="description-body"
+        class="mt-2 text-sm text-zinc-300"
+        :aria-busy="props.descriptionLoading === true"
+      >
+        <p v-if="props.descriptionLoading" class="text-zinc-500">Looking for a description…</p>
+
+        <p v-else-if="props.descriptionMissing" class="text-zinc-500">
+          No description available for this book.
+        </p>
+
+        <template v-else>
+          <p
+            v-if="isGenerated"
+            data-testid="description-generated-label"
+            class="mb-1 text-xs text-amber-400"
+          >
+            AI-generated summary — may be inaccurate
+          </p>
+          <p class="whitespace-pre-line">{{ props.description }}</p>
+          <p v-if="props.isbn" class="mt-1 text-xs text-zinc-500">ISBN {{ props.isbn }}</p>
+
+          <button
+            v-if="props.canRegenerate"
+            type="button"
+            data-testid="description-regenerate"
+            title="Replace the stored description with a freshly generated one, for everyone"
+            class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200"
+            @click="emit('regenerate-description')"
+          >
+            Wrong description? Regenerate with AI
+          </button>
+        </template>
       </div>
     </div>
   </article>

@@ -75,7 +75,8 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             BOOKS.COVER_URL,
             BOOKS.PUBLISHER,
             BOOKS.YEAR,
-            BOOKS.DESCRIPTION
+            BOOKS.DESCRIPTION,
+            BOOKS.DESCRIPTION_SOURCE
         )
             .from(USER_LIBRARY)
             .join(BOOKS).on(USER_LIBRARY.BOOK_MD5.eq(BOOKS.MD5))
@@ -99,7 +100,8 @@ class UserLibraryRepository(private val dsl: DSLContext) {
                     coverUrl = record[BOOKS.COVER_URL] ?: "",
                     publisher = record[BOOKS.PUBLISHER] ?: "",
                     year = record[BOOKS.YEAR] ?: "",
-                    description = record[BOOKS.DESCRIPTION] ?: ""
+                    description = record[BOOKS.DESCRIPTION] ?: "",
+                    descriptionSource = record[BOOKS.DESCRIPTION_SOURCE] ?: ""
                 )
             }
     }
@@ -183,5 +185,6 @@ data class LibraryEntryWithBook(
     val coverUrl: String,
     val publisher: String,
     val year: String,
-    val description: String
+    val description: String,
+    val descriptionSource: String
 )

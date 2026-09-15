@@ -9,7 +9,12 @@ data class ScraperConfig(
     val maxRetries: Int,
     val backoffMultiplier: Double,
     val maxConcurrentDownloads: Int = 2,
-    val dataPath: String = "./data/library"
+    val dataPath: String = "./data/library",
+    val annaArchiveApiKey: String? = null,
+    val solvearrProxyUrl: String? = null,
+    val solvearrSessionTtlMinutes: Int = 24 * 60,
+    val torrentFallbackEnabled: Boolean = true,
+    val torrentStallTimeoutSeconds: Long = 3 * 60
 ) {
     companion object {
         fun fromEnvironment(environment: ApplicationEnvironment): ScraperConfig {
@@ -21,7 +26,29 @@ data class ScraperConfig(
                 maxRetries = config.property("scraper.maxRetries").getString().toInt(),
                 backoffMultiplier = config.property("scraper.backoffMultiplier").getString().toDouble(),
                 maxConcurrentDownloads = config.propertyOrNull("scraper.maxConcurrentDownloads")?.getString()?.toInt() ?: 2,
-                dataPath = config.propertyOrNull("scraper.dataPath")?.getString() ?: "./data/library"
+                dataPath = config.propertyOrNull("scraper.dataPath")?.getString() ?: "./data/library",
+                annaArchiveApiKey = config.propertyOrNull("scraper.annaArchiveApiKey")
+                    ?.getString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() },
+                solvearrProxyUrl = config.propertyOrNull("scraper.solvearrProxyUrl")
+                    ?.getString()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() },
+                solvearrSessionTtlMinutes = config
+                    .propertyOrNull("scraper.solvearrSessionTtlMinutes")
+                    ?.getString()
+                    ?.toInt()
+                    ?.coerceAtLeast(1)
+                    ?: 24 * 60,
+                torrentFallbackEnabled = config.propertyOrNull("scraper.torrentFallbackEnabled")
+                    ?.getString()
+                    ?.toBooleanStrictOrNull()
+                    ?: true,
+                torrentStallTimeoutSeconds = config.propertyOrNull("scraper.torrentStallTimeoutSeconds")
+                    ?.getString()
+                    ?.toLong()
+                    ?: 3 * 60
             )
         }
     }

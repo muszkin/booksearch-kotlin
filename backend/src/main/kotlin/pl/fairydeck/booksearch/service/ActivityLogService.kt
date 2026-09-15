@@ -1,5 +1,6 @@
 package pl.fairydeck.booksearch.service
 
+import org.jooq.DSLContext
 import org.slf4j.LoggerFactory
 import pl.fairydeck.booksearch.repository.ActivityLogRepository
 
@@ -9,9 +10,30 @@ class ActivityLogService(
 
     private val logger = LoggerFactory.getLogger(ActivityLogService::class.java)
 
-    fun log(userId: Int, actionType: String, entityType: String, entityId: String? = null, details: String? = null) {
+    fun log(
+        userId: Int,
+        actionType: String,
+        entityType: String,
+        entityId: String? = null,
+        details: String? = null,
+        transactionDsl: DSLContext? = null
+    ) {
+        val repository = transactionDsl
+            ?.let(::ActivityLogRepository)
+            ?: activityLogRepository
+        log(repository, userId, actionType, entityType, entityId, details)
+    }
+
+    private fun log(
+        repository: ActivityLogRepository,
+        userId: Int,
+        actionType: String,
+        entityType: String,
+        entityId: String?,
+        details: String?
+    ) {
         try {
-            activityLogRepository.insert(userId, actionType, entityType, entityId, details)
+            repository.insert(userId, actionType, entityType, entityId, details)
         } catch (e: Exception) {
             logger.error("Failed to log activity: action={}, entity={}, entityId={}", actionType, entityType, entityId, e)
         }
@@ -24,9 +46,13 @@ class ActivityLogService(
         entityType: String,
         entityId: String? = null,
         adminDetails: String? = null,
-        targetDetails: String? = null
+        targetDetails: String? = null,
+        transactionDsl: DSLContext? = null
     ) {
-        log(userId = adminUserId, actionType = actionType, entityType = entityType, entityId = entityId, details = adminDetails)
-        log(userId = targetUserId, actionType = actionType, entityType = entityType, entityId = entityId, details = targetDetails)
+        val repository = transactionDsl
+            ?.let(::ActivityLogRepository)
+            ?: activityLogRepository
+        log(repository, adminUserId, actionType, entityType, entityId, adminDetails)
+        log(repository, targetUserId, actionType, entityType, entityId, targetDetails)
     }
 }

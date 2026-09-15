@@ -6,9 +6,11 @@ import {
   DownloadService,
   ConvertService,
   SettingsService,
+  SearchService,
   CancelablePromise,
 } from '@/api/generated'
 import type {
+  LibraryBook,
   LibraryListResponse,
   DownloadStartedResponse,
   DownloadStatusResponse,
@@ -29,6 +31,7 @@ vi.mock('@/api/generated', async (importOriginal) => {
     DownloadService: {
       startDownload: vi.fn(),
       getDownloadStatus: vi.fn(),
+      getDownloadJobs: vi.fn(),
     },
     ConvertService: {
       startConversion: vi.fn(),
@@ -41,6 +44,10 @@ vi.mock('@/api/generated', async (importOriginal) => {
     },
     SettingsService: {
       getAllSettings: vi.fn(),
+    },
+    SearchService: {
+      getBookDescription: vi.fn(),
+      regenerateBookDescription: vi.fn(),
     },
   }
 })
@@ -70,12 +77,27 @@ const mockLibraryResponse: LibraryListResponse = {
       publisher: 'Wydawnictwo',
       year: '2020',
       description: 'Sci-fi novel',
+      descriptionSource: 'annas-archive',
     },
   ],
   totalItems: 1,
   page: 1,
   pageSize: 20,
   totalPages: 1,
+  canRegenerate: true,
+}
+
+function bookWithout(overrides: Partial<LibraryBook>): LibraryBook {
+  return {
+    ...mockLibraryResponse.items[0],
+    description: '',
+    descriptionSource: '',
+    ...overrides,
+  }
+}
+
+function libraryResponseWith(items: LibraryBook[]): LibraryListResponse {
+  return { ...mockLibraryResponse, items }
 }
 
 describe('useLibraryStore', () => {
@@ -131,12 +153,14 @@ describe('useLibraryStore', () => {
           publisher: 'Gollancz',
           year: '2001',
           description: 'Sci-fi novel',
+          descriptionSource: 'annas-archive',
         },
       ],
       totalItems: 21,
       page: 2,
       pageSize: 20,
       totalPages: 2,
+      canRegenerate: true,
     }
 
     vi.mocked(LibraryService.getUserLibrary).mockReturnValue(
@@ -214,6 +238,59 @@ describe('useLibraryStore', () => {
     expect(DownloadService.getDownloadStatus).not.toHaveBeenCalled()
 
     store.cleanup()
+  })
+
+  it('restores failed and active download states when the library is opened', async () => {
+    vi.mocked(DownloadService.getDownloadJobs).mockReturnValue(
+      resolving({
+        items: [
+          {
+            jobId: 12,
+            bookMd5: 'failed-book',
+            format: 'epub',
+            status: 'failed',
+            progress: 40,
+            error: 'DDoS challenge timed out',
+            createdAt: '2026-07-30T12:00:00Z',
+            updatedAt: '2026-07-30T12:05:00Z',
+          },
+          {
+            jobId: 11,
+            bookMd5: 'active-book',
+            format: 'epub',
+            status: 'fetching_slow_download',
+            progress: 40,
+            createdAt: '2026-07-30T11:00:00Z',
+            updatedAt: '2026-07-30T11:01:00Z',
+          },
+        ],
+        totalCount: 2,
+      }),
+    )
+    vi.mocked(DownloadService.getDownloadStatus).mockReturnValue(
+      resolving({
+        jobId: 11,
+        status: 'completed',
+        progress: 100,
+        filePath: '/books/active.epub',
+      }),
+    )
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(resolving(mockLibraryResponse))
+
+    const store = useLibraryStore()
+    await store.fetchDownloadStatuses()
+
+    expect(DownloadService.getDownloadJobs).toHaveBeenCalledWith(undefined, 1, 100)
+    expect(store.activeDownloads.get('failed-book')).toMatchObject({
+      status: 'failed',
+      progress: 40,
+      error: 'DDoS challenge timed out',
+    })
+    expect(store.activeDownloads.get('active-book')?.status).toBe('fetching_slow_download')
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(DownloadService.getDownloadStatus).toHaveBeenCalledWith(11)
+    expect(store.activeDownloads.get('active-book')?.status).toBe('completed')
   })
 
   it('startConversionPolling tracks conversion status', async () => {
@@ -308,5 +385,99 @@ describe('useLibraryStore', () => {
 
     expect(store.books).toHaveLength(0)
     expect(LibraryService.removeFromLibrary).toHaveBeenCalledWith(1)
+  })
+
+  it('fetchLibrary remembers whether descriptions can be generated', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(resolving(mockLibraryResponse))
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+
+    expect(store.canRegenerate).toBe(true)
+  })
+
+  it('resolveMissingDescriptions looks up only the books that have none', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(
+      resolving(libraryResponseWith([
+        bookWithout({ id: 1, bookMd5: 'abc123', description: 'Already known' }),
+        bookWithout({ id: 2, bookMd5: 'def456' }),
+      ])),
+    )
+    vi.mocked(SearchService.getBookDescription).mockReturnValue(
+      resolving({ description: 'Freshly resolved', source: 'annas-archive', canRegenerate: true }),
+    )
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+    await store.resolveMissingDescriptions()
+
+    expect(SearchService.getBookDescription).toHaveBeenCalledTimes(1)
+    expect(SearchService.getBookDescription).toHaveBeenCalledWith('def456')
+    expect(store.books[1].description).toBe('Freshly resolved')
+    expect(store.books[1].descriptionSource).toBe('annas-archive')
+    expect(store.isDescriptionLoading('def456')).toBe(false)
+  })
+
+  it('resolveMissingDescriptions marks a book whose lookup found nothing', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(
+      resolving(libraryResponseWith([bookWithout({ id: 1, bookMd5: 'def456' })])),
+    )
+    vi.mocked(SearchService.getBookDescription).mockReturnValue(
+      rejecting(new Error('No description available')),
+    )
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+    await store.resolveMissingDescriptions()
+
+    expect(store.isDescriptionMissing('def456')).toBe(true)
+    expect(store.isDescriptionLoading('def456')).toBe(false)
+  })
+
+  it('resolveMissingDescriptions fills every entry sharing an md5', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(
+      resolving(libraryResponseWith([
+        bookWithout({ id: 1, bookMd5: 'def456', format: 'epub' }),
+        bookWithout({ id: 2, bookMd5: 'def456', format: 'mobi' }),
+      ])),
+    )
+    vi.mocked(SearchService.getBookDescription).mockReturnValue(
+      resolving({ description: 'Shared blurb', source: 'annas-archive', canRegenerate: true }),
+    )
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+    await store.resolveMissingDescriptions()
+
+    expect(SearchService.getBookDescription).toHaveBeenCalledTimes(1)
+    expect(store.books.map((b) => b.description)).toEqual(['Shared blurb', 'Shared blurb'])
+  })
+
+  it('regenerateDescription replaces the stored text with the generated one', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(resolving(mockLibraryResponse))
+    vi.mocked(SearchService.regenerateBookDescription).mockReturnValue(
+      resolving({ description: 'Generated instead', source: 'openrouter', canRegenerate: true }),
+    )
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+    await store.regenerateDescription('abc123')
+
+    expect(store.books[0].description).toBe('Generated instead')
+    expect(store.books[0].descriptionSource).toBe('openrouter')
+  })
+
+  it('regenerateDescription leaves the stored text alone when the model declines', async () => {
+    vi.mocked(LibraryService.getUserLibrary).mockReturnValue(resolving(mockLibraryResponse))
+    vi.mocked(SearchService.regenerateBookDescription).mockReturnValue(
+      rejecting(new Error('Could not generate a description')),
+    )
+
+    const store = useLibraryStore()
+    await store.fetchLibrary(1)
+    await store.regenerateDescription('abc123')
+
+    expect(store.books[0].description).toBe('Sci-fi novel')
+    expect(store.isDescriptionLoading('abc123')).toBe(false)
   })
 })

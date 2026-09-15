@@ -1,18 +1,55 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const returningToAdmin = ref(false)
+const returnError = ref<string | null>(null)
 
 async function handleLogout() {
   await authStore.logout()
   await router.push('/login')
 }
+
+async function handleReturnToAdmin() {
+  returningToAdmin.value = true
+  returnError.value = null
+  try {
+    await authStore.stopImpersonation()
+    await router.replace('/admin')
+  } catch (error) {
+    returnError.value = 'Could not return to the admin account.'
+    // eslint-disable-next-line no-console
+    console.error('stopImpersonation failed', error)
+  } finally {
+    returningToAdmin.value = false
+  }
+}
 </script>
 
 <template>
   <div class="border-t border-zinc-700 px-4 py-4">
+    <button
+      v-if="authStore.isImpersonating"
+      type="button"
+      data-testid="return-to-admin-link"
+      class="mb-3 inline-flex min-h-8 items-center text-left text-xs font-medium text-amber-400 underline decoration-amber-400/50 underline-offset-4 transition-colors hover:text-amber-300 disabled:cursor-wait disabled:opacity-60"
+      :disabled="returningToAdmin"
+      @click="handleReturnToAdmin"
+    >
+      {{ returningToAdmin ? 'Returning to admin…' : 'Return to admin' }}
+    </button>
+
+    <p
+      v-if="returnError"
+      data-testid="return-to-admin-error"
+      class="mb-3 text-xs text-rose-400"
+    >
+      {{ returnError }}
+    </p>
+
     <div class="flex items-center justify-between gap-3">
       <div class="min-w-0">
         <p class="truncate text-sm font-medium text-zinc-100">

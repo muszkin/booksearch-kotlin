@@ -37,7 +37,7 @@ class SearchRoutesTest {
     fun shouldReturn400WhenQueryParamMissing() = testApp {
         val token = registerAndGetToken()
 
-        val response = client.get("/api/search") {
+        val response = client.post("/api/search") {
             header(HttpHeaders.Authorization, "Bearer $token")
         }
 
@@ -46,7 +46,7 @@ class SearchRoutesTest {
 
     @Test
     fun shouldReturn401WithoutJwtToken() = testApp {
-        val response = client.get("/api/search?q=test")
+        val response = client.post("/api/search?q=test")
 
         assertEquals(HttpStatusCode.Unauthorized, response.status)
     }

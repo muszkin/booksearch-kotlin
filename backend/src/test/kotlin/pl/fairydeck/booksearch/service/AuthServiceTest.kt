@@ -5,6 +5,7 @@ import org.jooq.DSLContext
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import pl.fairydeck.booksearch.api.AuthenticationException
 import pl.fairydeck.booksearch.api.AuthorizationException
 import pl.fairydeck.booksearch.api.ConflictException
@@ -18,6 +19,7 @@ import pl.fairydeck.booksearch.repository.PasswordResetTokenRepository
 import pl.fairydeck.booksearch.repository.RefreshTokenRepository
 import pl.fairydeck.booksearch.repository.SystemConfigRepository
 import pl.fairydeck.booksearch.repository.UserRepository
+import java.nio.file.Path
 import java.time.Instant
 
 class AuthServiceTest {
@@ -375,6 +377,57 @@ class AuthServiceTest {
             .fetch()
         assertEquals(1, adminStopLogs.size, "expected 1 admin-perspective STOP log row")
         assertEquals(1, targetStopLogs.size, "expected 1 target-perspective STOP log row")
+    }
+
+    @Test
+    fun impersonationWritesAuditLogsThroughDiskTransaction(@TempDir tempDir: Path) {
+        val fileDsl = DatabaseFactory.create(
+            tempDir.resolve("impersonation-audit.db").toString()
+        )
+        val fileAuthService = AuthService(
+            dsl = fileDsl,
+            userRepository = UserRepository(fileDsl),
+            refreshTokenRepository = RefreshTokenRepository(fileDsl),
+            passwordResetTokenRepository = PasswordResetTokenRepository(fileDsl),
+            systemConfigRepository = SystemConfigRepository(fileDsl),
+            activityLogService = ActivityLogService(ActivityLogRepository(fileDsl)),
+            jwtSecret = JWT_SECRET,
+            jwtIssuer = JWT_ISSUER,
+            jwtAudience = JWT_AUDIENCE,
+            accessTokenExpirationMs = ACCESS_TOKEN_EXPIRATION_MS,
+            refreshTokenExpirationMs = REFRESH_TOKEN_EXPIRATION_MS
+        )
+        val admin = fileAuthService.register(
+            "disk-admin@example.com",
+            "adminpass123",
+            "Disk Admin"
+        )
+        val target = fileAuthService.register(
+            "disk-target@example.com",
+            "targetpass123",
+            "Disk Target"
+        )
+
+        val impersonation = fileAuthService.startImpersonation(
+            admin.user.id.toInt(),
+            target.user.id.toInt()
+        )
+        fileAuthService.stopImpersonation(
+            currentRefreshToken = impersonation.refreshToken,
+            originalAdminId = admin.user.id.toInt(),
+            impersonatedUserId = target.user.id.toInt()
+        )
+
+        val startLogs = fileDsl.selectCount()
+            .from(ACTIVITY_LOGS)
+            .where(ACTIVITY_LOGS.ACTION_TYPE.eq("IMPERSONATION_START"))
+            .fetchOne(0, Int::class.java)
+        val stopLogs = fileDsl.selectCount()
+            .from(ACTIVITY_LOGS)
+            .where(ACTIVITY_LOGS.ACTION_TYPE.eq("IMPERSONATION_STOP"))
+            .fetchOne(0, Int::class.java)
+        assertEquals(2, startLogs)
+        assertEquals(2, stopLogs)
     }
 
     @Test

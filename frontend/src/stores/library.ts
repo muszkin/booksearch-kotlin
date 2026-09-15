@@ -7,6 +7,7 @@ import {
   ConvertService,
   DeliverService,
   SettingsService,
+  SearchService,
 } from '@/api/generated'
 import type {
   LibraryBook,
@@ -16,7 +17,9 @@ import type {
 } from '@/api/generated'
 
 const POLL_INTERVAL_MS = 5000
-const TERMINAL_DOWNLOAD_STATUSES = ['completed', 'failed']
+/** Each lookup can take seconds; a handful at a time keeps a full page from crawling. */
+const DESCRIPTION_LOOKUP_CONCURRENCY = 3
+const TERMINAL_DOWNLOAD_STATUSES = ['completed', 'failed', 'cancelled']
 const TERMINAL_CONVERSION_STATUSES = ['completed', 'failed']
 
 export const useLibraryStore = defineStore('library', () => {
@@ -26,6 +29,9 @@ export const useLibraryStore = defineStore('library', () => {
   const activeConversions = ref(new Map<number, ConversionStatusResponse>())
   const deliveries = ref(new Map<string, DeliveryRecord[]>())
   const deviceSettings = ref({ kindle: false, pocketbook: false })
+  const canRegenerate = ref(false)
+  const descriptionLoading = ref(new Set<string>())
+  const descriptionsWithoutText = ref(new Set<string>())
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -49,6 +55,100 @@ export const useLibraryStore = defineStore('library', () => {
     return deliveries.value.get(bookMd5) ?? []
   }
 
+  function isDescriptionLoading(bookMd5: string): boolean {
+    return descriptionLoading.value.has(bookMd5)
+  }
+
+  function isDescriptionMissing(bookMd5: string): boolean {
+    return descriptionsWithoutText.value.has(bookMd5)
+  }
+
+  function markDescriptionLoading(bookMd5: string, isLoading: boolean) {
+    const updated = new Set(descriptionLoading.value)
+    if (isLoading) {
+      updated.add(bookMd5)
+    } else {
+      updated.delete(bookMd5)
+    }
+    descriptionLoading.value = updated
+  }
+
+  function markDescriptionMissing(bookMd5: string, isMissing: boolean) {
+    const updated = new Set(descriptionsWithoutText.value)
+    if (isMissing) {
+      updated.add(bookMd5)
+    } else {
+      updated.delete(bookMd5)
+    }
+    descriptionsWithoutText.value = updated
+  }
+
+  /** The same book can sit in the library in several formats; all of them show the text. */
+  function applyDescription(bookMd5: string, description: string, source: string) {
+    books.value = books.value.map((book) =>
+      book.bookMd5 === bookMd5 ? { ...book, description, descriptionSource: source } : book,
+    )
+  }
+
+  async function resolveDescription(bookMd5: string) {
+    markDescriptionLoading(bookMd5, true)
+    try {
+      const resolved = await SearchService.getBookDescription(bookMd5)
+      applyDescription(bookMd5, resolved.description, resolved.source)
+      markDescriptionMissing(bookMd5, false)
+    } catch {
+      // A book nothing knows about is an ordinary outcome, not an error worth shouting about.
+      markDescriptionMissing(bookMd5, true)
+    } finally {
+      markDescriptionLoading(bookMd5, false)
+    }
+  }
+
+  /**
+   * Looks up the books the library holds no description for. The backend remembers a
+   * fruitless lookup, so revisiting the page does not repeat the expensive part.
+   */
+  async function resolveMissingDescriptions() {
+    const pending = [
+      ...new Set(
+        books.value
+          .filter((book) => !book.description)
+          .map((book) => book.bookMd5)
+          .filter((md5) => !isDescriptionLoading(md5) && !isDescriptionMissing(md5)),
+      ),
+    ]
+    if (pending.length === 0) return
+
+    for (const md5 of pending) markDescriptionLoading(md5, true)
+
+    const queue = [...pending]
+    const workers = Array.from(
+      { length: Math.min(DESCRIPTION_LOOKUP_CONCURRENCY, queue.length) },
+      async () => {
+        let next = queue.shift()
+        while (next !== undefined) {
+          await resolveDescription(next)
+          next = queue.shift()
+        }
+      },
+    )
+
+    await Promise.all(workers)
+  }
+
+  async function regenerateDescription(bookMd5: string) {
+    markDescriptionLoading(bookMd5, true)
+    try {
+      const generated = await SearchService.regenerateBookDescription(bookMd5)
+      applyDescription(bookMd5, generated.description, generated.source)
+      markDescriptionMissing(bookMd5, false)
+    } catch {
+      // The stored description is left as it was; say nothing louder than that.
+    } finally {
+      markDescriptionLoading(bookMd5, false)
+    }
+  }
+
   async function fetchLibrary(page: number) {
     loading.value = true
     error.value = null
@@ -56,6 +156,7 @@ export const useLibraryStore = defineStore('library', () => {
     try {
       const response = await LibraryService.getUserLibrary(page, pagination.value.pageSize)
       books.value = response.items
+      canRegenerate.value = response.canRegenerate
       pagination.value = {
         page: response.page,
         pageSize: response.pageSize,
@@ -67,6 +168,69 @@ export const useLibraryStore = defineStore('library', () => {
       books.value = []
     } finally {
       loading.value = false
+    }
+  }
+
+  function updateDownloadStatus(bookMd5: string, status: DownloadStatusResponse) {
+    const updated = new Map(activeDownloads.value)
+    updated.set(bookMd5, status)
+    activeDownloads.value = updated
+  }
+
+  function pollDownload(bookMd5: string, jobId: number) {
+    if (downloadIntervals.has(bookMd5)) return
+
+    const intervalId = setInterval(async () => {
+      try {
+        const status = await DownloadService.getDownloadStatus(jobId)
+        updateDownloadStatus(bookMd5, status)
+
+        if (TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
+          clearInterval(intervalId)
+          downloadIntervals.delete(bookMd5)
+
+          if (status.status === 'completed') {
+            await fetchLibrary(pagination.value.page)
+          }
+        }
+      } catch {
+        const current = activeDownloads.value.get(bookMd5)
+        if (current) {
+          updateDownloadStatus(bookMd5, {
+            ...current,
+            error: 'Status updates are temporarily unavailable. Retrying…',
+          })
+        }
+      }
+    }, POLL_INTERVAL_MS)
+
+    downloadIntervals.set(bookMd5, intervalId)
+  }
+
+  async function fetchDownloadStatuses() {
+    try {
+      const response = await DownloadService.getDownloadJobs(undefined, 1, 100)
+      const latestByBook = new Map<string, DownloadStatusResponse>()
+
+      for (const job of response.items) {
+        if (latestByBook.has(job.bookMd5)) continue
+        latestByBook.set(job.bookMd5, {
+          jobId: job.jobId,
+          status: job.status,
+          progress: job.progress,
+          filePath: job.filePath,
+          error: job.error,
+        })
+      }
+
+      activeDownloads.value = latestByBook
+      for (const [bookMd5, status] of latestByBook) {
+        if (!TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
+          pollDownload(bookMd5, status.jobId)
+        }
+      }
+    } catch {
+      // The library remains usable even when historical job state is unavailable.
     }
   }
 
@@ -106,32 +270,8 @@ export const useLibraryStore = defineStore('library', () => {
         progress: 0,
       }
 
-      const next = new Map(activeDownloads.value)
-      next.set(bookMd5, initialStatus)
-      activeDownloads.value = next
-
-      const intervalId = setInterval(async () => {
-        try {
-          const status = await DownloadService.getDownloadStatus(started.jobId)
-          const updated = new Map(activeDownloads.value)
-          updated.set(bookMd5, status)
-          activeDownloads.value = updated
-
-          if (TERMINAL_DOWNLOAD_STATUSES.includes(status.status)) {
-            clearInterval(intervalId)
-            downloadIntervals.delete(bookMd5)
-
-            if (status.status === 'completed') {
-              await fetchLibrary(pagination.value.page)
-            }
-          }
-        } catch {
-          clearInterval(intervalId)
-          downloadIntervals.delete(bookMd5)
-        }
-      }, POLL_INTERVAL_MS)
-
-      downloadIntervals.set(bookMd5, intervalId)
+      updateDownloadStatus(bookMd5, initialStatus)
+      pollDownload(bookMd5, started.jobId)
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to start download'
     }
@@ -238,6 +378,7 @@ export const useLibraryStore = defineStore('library', () => {
     activeConversions,
     deliveries,
     deviceSettings,
+    canRegenerate,
     loading,
     error,
     hasBooks,
@@ -245,7 +386,12 @@ export const useLibraryStore = defineStore('library', () => {
     isDownloading,
     isConverting,
     getDeliveries,
+    isDescriptionLoading,
+    isDescriptionMissing,
+    resolveMissingDescriptions,
+    regenerateDescription,
     fetchLibrary,
+    fetchDownloadStatuses,
     fetchDeviceSettings,
     fetchDeliveries,
     startDownloadPolling,
