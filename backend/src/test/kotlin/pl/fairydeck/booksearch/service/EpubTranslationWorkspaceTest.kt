@@ -59,9 +59,71 @@ class EpubTranslationWorkspaceTest {
         val plan = EpubTranslationWorkspace(dir.resolve("jobs")).create(source, "nested")
         assertEquals(listOf("Before", "Middle", "After"), plan.segments.first().texts)
     }
+
+    @Test fun `preflight rejects oversized resource outside spine`() {
+        val source = translationFixture(dir.resolve("large-resource.epub"), extraResources = mapOf("OPS/font.bin" to "x".repeat(4097)))
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxEntryBytes = 4096)
+        assertThrows(TranslationWorkspaceException::class.java) { workspace.create(source, "large") }
+        assertFalse(dir.resolve("jobs/large").toFile().exists())
+    }
+
+    @Test fun `preflight rejects aggregate resource size even when each entry fits`() {
+        val source = translationFixture(dir.resolve("large-total.epub"), extraResources = mapOf("OPS/font.bin" to "x".repeat(3000), "OPS/audio.bin" to "y".repeat(3000)))
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxEntryBytes = 4096, maxArchiveBytes = 7000)
+        assertThrows(TranslationWorkspaceException::class.java) { workspace.inspect(source) }
+    }
+
+    @Test fun `publication permits translation longer than input segment limit`() {
+        val source = translationFixture(dir.resolve("source.epub"), "<p>Hello</p>")
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxSegmentCharacters = 6)
+        val plan = workspace.create(source, "expanded")
+        workspace.replaceSegment(plan.segments.first(), """["Zdecydowanie dłuższe tłumaczenie"]""")
+        workspace.replaceSegment(plan.segments.last(), """["Drugi rozdział również jest dłuższy"]""")
+        val output = workspace.publish(plan)
+        ZipFile(output).use { zip ->
+            val chapter = zip.getInputStream(zip.getEntry("OPS/two.xhtml")).readBytes().decodeToString()
+            assertTrue(chapter.contains("Zdecydowanie dłuższe tłumaczenie"))
+        }
+        assertEquals(2, EpubTranslationWorkspace(dir.resolve("readback")).inspect(output).chapters.size)
+    }
+
+    @Test fun `actual archive limit rejects falsely declared resource sizes`() {
+        val source = translationFixture(dir.resolve("false-sizes.epub"), extraResources = mapOf("OPS/font.bin" to "x".repeat(3000), "OPS/audio.bin" to "y".repeat(3000)))
+        declareZipEntrySize(source, "OPS/font.bin", 1)
+        declareZipEntrySize(source, "OPS/audio.bin", 1)
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxEntryBytes = 4096, maxArchiveBytes = 7000)
+        assertThrows(TranslationWorkspaceException::class.java) { workspace.inspect(source) }
+    }
+
+    @Test fun `publication bounds streaming of an unchanged resource after snapshot modification`() {
+        val source = translationFixture(dir.resolve("source.epub"))
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxEntryBytes = 4096)
+        val plan = workspace.create(source, "changed-snapshot")
+        workspace.replaceSegment(plan.segments.first(), """["Cześć ","świat","!"]""")
+        workspace.replaceSegment(plan.segments.last(), """["Drugi"]""")
+        translationFixture(plan.source.toPath(), extraResources = mapOf("OPS/font.bin" to "x".repeat(4097)))
+        declareZipEntrySize(plan.source, "OPS/font.bin", 1)
+        assertThrows(TranslationWorkspaceException::class.java) { workspace.publish(plan) }
+        assertTrue(source.exists())
+    }
 }
 
-internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=\"accent\">world</em>!</p>", extraName: String? = null): java.io.File {
+private fun declareZipEntrySize(file: java.io.File, entryName: String, size: Int) {
+    val bytes = file.readBytes()
+    val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+    for (offset in 0 until bytes.size - 46) {
+        if (buffer.getInt(offset) != 0x02014b50) continue
+        val nameLength = buffer.getShort(offset + 28).toInt() and 0xffff
+        if (bytes.copyOfRange(offset + 46, offset + 46 + nameLength).decodeToString() == entryName) {
+            buffer.putInt(offset + 24, size)
+            file.writeBytes(bytes)
+            return
+        }
+    }
+    error("Missing fixture ZIP entry")
+}
+
+internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=\"accent\">world</em>!</p>", extraName: String? = null, extraResources: Map<String, String> = emptyMap()): java.io.File {
     val entries = linkedMapOf(
         "mimetype" to "application/epub+zip",
         "META-INF/container.xml" to """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>""",
@@ -73,6 +135,7 @@ internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=
         "OPS/image.png" to "binary-image-fixture"
     )
     extraName?.let { entries[it] = "invalid" }
+    entries.putAll(extraResources)
     ZipOutputStream(path.toFile().outputStream()).use { zip -> entries.forEach { (name, text) -> zip.putNextEntry(ZipEntry(name)); zip.write(text.toByteArray()); zip.closeEntry() } }
     return path.toFile()
 }
