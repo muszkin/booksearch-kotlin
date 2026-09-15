@@ -20,6 +20,7 @@ services:
       - "${SERVER_PORT:-8080}:8080"
     env_file:
       - .env
+    # OPENROUTER_API_KEY is provided only through .env and is never persisted.
     volumes:
       - booksearch-data:/app/data
     depends_on:

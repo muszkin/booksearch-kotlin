@@ -70,6 +70,8 @@ Mailpit UI (dev): `http://localhost:8025`
 | `DATA_PATH` | `./data/library` | Directory for downloaded book files |
 | `SMTP_HOST` | `mailpit` | SMTP server host (used for system emails) |
 | `SMTP_PORT` | `1025` | SMTP server port |
+| `OPENROUTER_API_KEY` | — | OpenRouter secret used only for EPUB translation requests. Keep it outside version control and SQLite. |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai` | OpenRouter endpoint; normally leave unchanged. |
 
 ## Documentation
 

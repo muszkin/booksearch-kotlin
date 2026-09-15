@@ -27,3 +27,6 @@ scraper:
 mirror:
   domains: "$MIRROR_DOMAINS:annas-archive.gd,annas-archive.pk,annas-archive.gl,annas-archive.li,annas-archive.se,annas-archive.gs"
   refreshIntervalHours: 24
+
+openRouter:
+  baseUrl: "$OPENROUTER_BASE_URL:https://openrouter.ai"
