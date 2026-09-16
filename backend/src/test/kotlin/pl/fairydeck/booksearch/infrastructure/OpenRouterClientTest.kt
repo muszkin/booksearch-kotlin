@@ -22,6 +22,38 @@ import org.junit.jupiter.api.Test
 
 class OpenRouterClientTest {
 
+    @Test fun `429 captures only safe response metadata and other HTTP codes stay intact`() = runBlocking {
+        for (status in listOf(429, 401, 402, 403, 500)) {
+            val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+                if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+                else respond("""{"error":{"message":"secret prose test-key","metadata":{"provider_code":"secret","raw":"secret"}}}""",
+                    HttpStatusCode.fromValue(status), headersOf("Retry-After" to listOf("90"), "X-RateLimit-Limit" to listOf("20")))
+            }))
+            try {
+                val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "secret prose") } }
+                assertEquals("http_$status", error.code)
+                assertFalse(error.toString().contains("secret"))
+                if (status == 429) {
+                    assertEquals("provider", error.rateLimit?.scope)
+                    assertEquals(20L, error.rateLimit?.limit)
+                    org.junit.jupiter.api.Assertions.assertNotNull(error.rateLimit?.retryAt)
+                    assertFalse(error.rateLimit.toString().contains("secret"))
+                } else org.junit.jupiter.api.Assertions.assertNull(error.rateLimit)
+            } finally { client.close() }
+        }
+    }
+
+    @Test fun `completion cancellation is propagated`() = runBlocking {
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else throw kotlinx.coroutines.CancellationException("cancelled")
+        }))
+        try {
+            assertThrows(kotlinx.coroutines.CancellationException::class.java) { runBlocking { client.translate("free", "source") } }
+        } finally { client.close() }
+        Unit
+    }
+
     @Test fun `Ktor request deadline reports a retryable timeout`() = runBlocking {
         val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
             if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())

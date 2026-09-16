@@ -49,7 +49,7 @@ export { SearchJobStatusResponse } from './models/SearchJobStatusResponse';
 export type { SearchResponse } from './models/SearchResponse';
 export type { SearchStartedResponse } from './models/SearchStartedResponse';
 export type { ToggleRegistrationRequest } from './models/ToggleRegistrationRequest';
-export type { TranslationAttempt } from './models/TranslationAttempt';
+export { TranslationAttempt } from './models/TranslationAttempt';
 export type { TranslationChapterDetail } from './models/TranslationChapterDetail';
 export type { TranslationConfigRequest } from './models/TranslationConfigRequest';
 export type { TranslationConfigResponse } from './models/TranslationConfigResponse';
@@ -60,7 +60,7 @@ export type { TranslationModel } from './models/TranslationModel';
 export type { TranslationOptions } from './models/TranslationOptions';
 export type { TranslationStartedResponse } from './models/TranslationStartedResponse';
 export type { TranslationStartRequest } from './models/TranslationStartRequest';
-export type { TranslationStatusResponse } from './models/TranslationStatusResponse';
+export { TranslationStatusResponse } from './models/TranslationStatusResponse';
 export type { UserResponse } from './models/UserResponse';
 
 export { AdminService } from './services/AdminService';

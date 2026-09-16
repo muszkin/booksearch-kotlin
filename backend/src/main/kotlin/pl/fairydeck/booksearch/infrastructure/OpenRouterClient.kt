@@ -73,7 +73,7 @@ class OpenRouterClient(
             }
         }
         if (!response.status.isSuccess()) {
-            throw responseError(response.status.value)
+            throw responseError(response)
         }
 
         val completion = decode<OpenRouterCompletionResponse>(response.bodyAsText())
@@ -112,7 +112,7 @@ class OpenRouterClient(
             }
         }
         if (!response.status.isSuccess()) {
-            throw responseError(response.status.value)
+            throw responseError(response)
         }
         return decode<OpenRouterModelsResponse>(response.bodyAsText()).data
     }
@@ -181,7 +181,11 @@ class OpenRouterClient(
     @Serializable
     private data class OpenRouterUsage(@SerialName("prompt_tokens") val promptTokens: Int = 0, @SerialName("completion_tokens") val completionTokens: Int = 0)
 
-    private fun responseError(status: Int) = OpenRouterException("OpenRouter HTTP $status", retryable = status == 429 || status in 500..599, code = "http_$status")
+    private suspend fun responseError(response: io.ktor.client.statement.HttpResponse): OpenRouterException {
+        val status = response.status.value
+        val rateLimit = if (status == 429) parseOpenRouterRateLimit(response.headers, response.bodyAsText()) else null
+        return OpenRouterException("OpenRouter HTTP $status", retryable = status == 429 || status in 500..599, code = "http_$status", rateLimit = rateLimit)
+    }
 
     private fun isUsable(answer: String, minLength: Int): Boolean = answer.length >= minLength && !answer.equals(UNKNOWN_MARKER, true) && HEDGING_MARKERS.none { answer.contains(it, true) }
 
@@ -199,7 +203,7 @@ data class OpenRouterModel(val id: String, val name: String)
 
 data class OpenRouterCompletion(val content: String, val inputTokens: Int = 0, val outputTokens: Int = 0, val model: String? = null, val finishReason: String? = null)
 
-class OpenRouterException(message: String, val retryable: Boolean = false, val code: String = "translation_request_failed") : RuntimeException(message)
+class OpenRouterException(message: String, val retryable: Boolean = false, val code: String = "translation_request_failed", val rateLimit: OpenRouterRateLimit? = null) : RuntimeException(message)
 
 data class DescriptionPromptSettings(val style: String, val minLength: Int) {
     companion object { val DEFAULT = DescriptionPromptSettings("You describe books for a library catalogue.", 80) }

@@ -16,5 +16,19 @@ export type TranslationAttempt = {
     outputTokens: number;
     itemCount: number;
     finishReason?: string | null;
+    /**
+     * UTC instant when retry becomes eligible.
+     */
+    retryAt?: string | null;
+    rateLimitScope?: TranslationAttempt.rateLimitScope | null;
+    rateLimitLimit?: number | null;
+    rateLimitRemaining?: number | null;
 };
+export namespace TranslationAttempt {
+    export enum rateLimitScope {
+        PLATFORM = 'platform',
+        PROVIDER = 'provider',
+        UNKNOWN = 'unknown',
+    }
+}
 

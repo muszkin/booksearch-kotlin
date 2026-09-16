@@ -44,6 +44,8 @@ class EpubTranslationWorkspace(
     private val maxEntryBytes: Long = 32L * 1024 * 1024,
     private val maxArchiveBytes: Long = 256L * 1024 * 1024
 ) {
+    internal val rateLimitDirectory: Path get() = root.resolve(".rate-limits")
+
     fun inspect(source: File): TranslationPlan = readPlan(source, root)
 
     fun create(source: File, jobId: String): TranslationPlan {

@@ -121,6 +121,26 @@ class TranslationRoutesTest {
         assertTrue(Json.parseToJsonElement(otherResponse.bodyAsText()).jsonArray.isEmpty())
     }
 
+    @Test fun `active cooldown is exposed and resume rejects before provider access`() = app {
+        val deadline = Instant.now().plusSeconds(86400).toString()
+        var calls = 0
+        coEvery { openRouter.translate(any(), any()) } answers {
+            calls++
+            throw OpenRouterException("secret prose key", true, "http_429", OpenRouterRateLimit("provider", deadline))
+        }
+        val id = Json.parseToJsonElement(start().bodyAsText()).jsonObject["jobId"]!!.jsonPrimitive.content
+        val response = client.get("/api/translation/jobs/$id") { bearerAuth(token()) }
+        val status = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("http_429", status["error"]!!.jsonPrimitive.content)
+        assertEquals(deadline, status["retryAt"]!!.jsonPrimitive.content)
+        assertEquals("provider", status["rateLimitScope"]!!.jsonPrimitive.content)
+        assertTrue(status["resumable"]!!.jsonPrimitive.boolean)
+        coEvery { openRouter.listFreeTextModels() } answers { fail("Early resume must not contact provider") }
+        assertEquals(HttpStatusCode.Conflict, client.post("/api/translation/jobs/$id/resume") { bearerAuth(token()) }.status)
+        assertEquals(1, calls)
+        assertFalse(response.bodyAsText().contains("secret"))
+    }
+
     @Test fun `start requires explicit boolean confirmation`() = app {
         listOf("""{"externalProcessingConfirmed":false}""", "{}", """{"externalProcessingConfirmed":"true"}""", "{")
             .forEach { assertEquals(HttpStatusCode.UnprocessableEntity, start(it).status) }

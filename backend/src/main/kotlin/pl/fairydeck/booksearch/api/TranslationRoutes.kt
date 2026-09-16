@@ -99,7 +99,8 @@ private fun TranslationStatus.toResponse(): TranslationStatusResponse {
         estimatedInputTokens = status.estimatedInputTokens, actualInputTokens = status.actualInputTokens,
         actualOutputTokens = status.actualOutputTokens, resumable = status.resumable,
         failedChapterIndex = status.failedChapterIndex, outputLibraryEntryId = status.outputLibraryEntryId,
-        error = status.error
+        error = status.error, retryAt = status.retryAt,
+        rateLimitScope = status.rateLimitScope?.let { TranslationStatusResponse.RateLimitScope.valueOf(it.uppercase()) }
     )
 }
 

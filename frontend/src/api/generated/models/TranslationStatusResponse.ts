@@ -5,6 +5,11 @@
 import type { TranslationJobState } from './TranslationJobState';
 export type TranslationStatusResponse = {
     /**
+     * Active shared cooldown deadline in UTC.
+     */
+    retryAt?: string | null;
+    rateLimitScope?: TranslationStatusResponse.rateLimitScope | null;
+    /**
      * UUID identifying the translation job.
      */
     jobId: string;
@@ -24,4 +29,11 @@ export type TranslationStatusResponse = {
     error?: string | null;
     resumable: boolean;
 };
+export namespace TranslationStatusResponse {
+    export enum rateLimitScope {
+        PLATFORM = 'platform',
+        PROVIDER = 'provider',
+        UNKNOWN = 'unknown',
+    }
+}
 

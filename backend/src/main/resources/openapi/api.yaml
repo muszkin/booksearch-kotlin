@@ -1609,6 +1609,10 @@ components:
         outputTokens: {type: integer}
         itemCount: {type: integer}
         finishReason: {type: string, nullable: true}
+        retryAt: {type: string, nullable: true, description: UTC instant when retry becomes eligible.}
+        rateLimitScope: {type: string, nullable: true, enum: [platform, provider, unknown]}
+        rateLimitLimit: {type: integer, format: int64, nullable: true}
+        rateLimitRemaining: {type: integer, format: int64, nullable: true}
 
     TranslationChapterDetail:
       type: object
@@ -1668,6 +1672,8 @@ components:
       type: object
       required: [jobId, status, sourceLibraryEntryId, modelId, totalChapters, completedChapters, estimatedInputTokens, actualInputTokens, actualOutputTokens, resumable]
       properties:
+        retryAt: {type: string, nullable: true, description: Active shared cooldown deadline in UTC.}
+        rateLimitScope: {type: string, nullable: true, enum: [platform, provider, unknown]}
         jobId:
           type: string
           description: UUID identifying the translation job.

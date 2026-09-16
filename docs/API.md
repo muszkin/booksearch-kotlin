@@ -100,6 +100,20 @@ routinely takes longer than the 120 second proxy read timeout, which surfaced as
 
 All translation endpoints require JWT and scope library entries/jobs to the authenticated user.
 
+HTTP 429 records a durable cooldown shared by translations using the configured OpenRouter key.
+Status and attempt diagnostics expose optional `retryAt` (UTC instant) and `rateLimitScope`
+(`platform`, `provider`, or `unknown`); attempts also expose safe optional
+`rateLimitLimit` and `rateLimitRemaining` counts. While the deadline is active, status
+reports `http_429` even if an earlier failure was recorded. Paused jobs remain structurally
+`resumable`, but Resume returns 409 before provider access until the deadline expires.
+Changing models cannot bypass the shared cooldown, including provider-scoped limits.
+
+Short cooldowns up to five minutes are awaited automatically, retrying the same text
+group at most twice. Three throttled responses, or a longer cooldown, pause the job;
+use Resume after the displayed deadline. Backoff is 60, 120, then 240 seconds plus up
+to one second of jitter, extended to any later server deadline or existing shared
+deadline. Saved chapters and source snapshots are retained across waits and restarts.
+
 | Method | Path | Behavior |
 | --- | --- | --- |
 | GET | `/api/translation/{libraryId}/references` | Downloaded Polish EPUBs by the source author in the user's library. |
