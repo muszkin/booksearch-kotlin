@@ -138,6 +138,19 @@ class TranslationServiceTest {
         assertEquals("completed", service.status(owner, id).status)
     }
 
+    @Test fun `truncated responses record usage and pause without saving an incomplete segment`() = runBlocking {
+        coEvery { client.translate(any(), any()) } returns OpenRouterCompletion("", 20, 4096, "actual-free", "length")
+        val service = service(this)
+        val id = service.start(owner, entryId, true, TranslationOptions(autoFallback = false)).jobId
+        awaitStopped(service, id)
+        assertEquals("output_truncated", service.status(owner, id).error)
+        assertEquals(0, service.status(owner, id).completedChapters)
+        val details = service.details(owner, id)
+        assertEquals(3, details.attempts.size)
+        assertTrue(details.attempts.all { it.errorCode == "output_truncated" && it.actualModel == "actual-free" && it.outputTokens == 4096 })
+        assertThrows(ValidationException::class.java) { service.exportChapter(owner, id, 0, "txt") }
+    }
+
     @Test fun `third transient failure pauses and resume publishes separate Polish entry`() = runBlocking {
         var failures = true
         coEvery { client.translate(any(), any()) } answers {

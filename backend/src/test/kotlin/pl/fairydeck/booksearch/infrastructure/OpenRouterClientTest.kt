@@ -22,6 +22,20 @@ import org.junit.jupiter.api.Test
 
 class OpenRouterClientTest {
 
+    @Test fun `null content preserves actual model usage and truncation reason`() = runBlocking {
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else respondJson("""{"model":"resolved-free","choices":[{"message":{"content":null},"finish_reason":"length"}],"usage":{"prompt_tokens":23,"completion_tokens":4096}}""")
+        }))
+        val result = client.translate("free", "source")
+        assertEquals("", result.content)
+        assertEquals("resolved-free", result.model)
+        assertEquals("length", result.finishReason)
+        assertEquals(23, result.inputTokens)
+        assertEquals(4096, result.outputTokens)
+        client.close()
+    }
+
     @Test fun `completion returns actual usage and rate limit is retryable`() = runBlocking {
         var limited = false
         val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
