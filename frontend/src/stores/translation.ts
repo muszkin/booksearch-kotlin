@@ -7,6 +7,9 @@ import { useAuthStore } from './auth'
 
 const POLL_INTERVAL_MS = 5000
 const ACTIVE_STATES = new Set([TranslationJobState.QUEUED, TranslationJobState.RUNNING])
+const hasCooldown = (job: TranslationStatusResponse) => !!job.retryAt && Date.parse(job.retryAt) > Date.now()
+const shouldPoll = (job: TranslationStatusResponse) => ACTIVE_STATES.has(job.status) ||
+  (job.status === TranslationJobState.PAUSED && hasCooldown(job))
 
 function validationMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.status === 422 && typeof error.body?.message === 'string'
@@ -87,7 +90,7 @@ export const useTranslationStore = defineStore('translation', () => {
         jobs.value.set(job.jobId, job)
         jobErrors.value.delete(job.jobId)
         ids.delete(job.jobId)
-        if (ACTIVE_STATES.has(job.status)) poll(job.jobId)
+        if (shouldPoll(job)) poll(job.jobId)
         else stopPolling(job.jobId)
       }
       saveRecovery()
@@ -146,7 +149,7 @@ export const useTranslationStore = defineStore('translation', () => {
       jobs.value.set(jobId, result)
       saveRecovery()
       jobErrors.value.delete(jobId)
-      if (!ACTIVE_STATES.has(result.status)) stopPolling(jobId)
+      if (!shouldPoll(result)) stopPolling(jobId)
       if (result.status === TranslationJobState.COMPLETED && previous?.status !== TranslationJobState.COMPLETED) {
         await library.fetchLibrary(library.pagination.page)
       }
@@ -164,14 +167,14 @@ export const useTranslationStore = defineStore('translation', () => {
   function poll(jobId: string) {
     if (intervals.has(jobId)) return
     const job = jobs.value.get(jobId)
-    if (job && !ACTIVE_STATES.has(job.status)) return
+    if (job && !shouldPoll(job)) return
     intervals.set(jobId, setInterval(() => { void readStatus(jobId) }, POLL_INTERVAL_MS))
   }
 
   async function refreshStatus(jobId: string) {
     const currentGeneration = generation
     const job = await readStatus(jobId)
-    if (currentGeneration === generation && job && ACTIVE_STATES.has(job.status)) poll(jobId)
+    if (currentGeneration === generation && job && shouldPoll(job)) poll(jobId)
   }
 
   async function start(libraryId: number, options?: TranslationOptions) {
@@ -214,11 +217,12 @@ export const useTranslationStore = defineStore('translation', () => {
 
   async function resume(jobId: string, options?: TranslationOptions) {
     const job = jobs.value.get(jobId)
-    if (!job?.resumable || busyJobs.value.has(jobId)) return
+    if (!job?.resumable || busyJobs.value.has(jobId) || hasCooldown(job)) return
     busyJobs.value.add(jobId)
     stopPolling(jobId)
     jobErrors.value.delete(jobId)
     const currentGeneration = generation
+    let refreshAfterConflict = false
     try {
       const result = options ? await TranslationService.resumeTranslation(jobId, options) : await TranslationService.resumeTranslation(jobId)
       if (currentGeneration !== generation) return
@@ -226,9 +230,15 @@ export const useTranslationStore = defineStore('translation', () => {
       saveRecovery()
       poll(jobId)
     } catch (err) {
-      if (currentGeneration === generation) jobErrors.value.set(jobId, validationMessage(err, 'Could not resume. Check the source, selected free model and reference context.'))
+      if (currentGeneration === generation) {
+        refreshAfterConflict = err instanceof ApiError && err.status === 409
+        jobErrors.value.set(jobId, validationMessage(err, 'Could not resume. Check the source, selected free model and reference context.'))
+      }
     } finally {
-      if (currentGeneration === generation) busyJobs.value.delete(jobId)
+      if (currentGeneration === generation) {
+        busyJobs.value.delete(jobId)
+        if (refreshAfterConflict) await refreshStatus(jobId)
+      }
     }
   }
 

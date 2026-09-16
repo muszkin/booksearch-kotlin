@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { TranslationService } from '@/api/generated'
 import type { TranslationStatusResponse, TranslationDetails, TranslationOptions } from '@/api/generated'
 import TranslationOptionsForm from './TranslationOptionsForm.vue'
@@ -11,6 +11,28 @@ const props = withDefaults(defineProps<Props>(), { busy: false, error: undefined
 const emit = defineEmits<{ resume: [options?: TranslationOptions]; cancel: []; retry: [] }>()
 const canResume = computed(() => props.job.resumable && ['paused', 'failed'].includes(props.job.status))
 const canCancel = computed(() => ['queued', 'paused'].includes(props.job.status))
+const now = ref(Date.now())
+const retryDeadline = computed(() => props.job.retryAt ? Date.parse(props.job.retryAt) : NaN)
+const coolingDown = computed(() => retryDeadline.value > now.value)
+let cooldownTimer: ReturnType<typeof setInterval> | undefined
+function clearCooldownTimer() {
+  if (cooldownTimer !== undefined) clearInterval(cooldownTimer)
+  cooldownTimer = undefined
+}
+watch(() => props.job.retryAt, () => {
+  clearCooldownTimer()
+  now.value = Date.now()
+  if (coolingDown.value) cooldownTimer = setInterval(() => {
+    now.value = Date.now()
+    if (!coolingDown.value) clearCooldownTimer()
+  }, 1000)
+}, { immediate: true })
+onUnmounted(clearCooldownTimer)
+function formatDeadline(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'brak danych' : date.toLocaleString('pl-PL', { timeZoneName: 'short' })
+}
+const scopeLabels = { platform: 'platforma', provider: 'dostawca', unknown: 'nieznany' }
 const details = ref<TranslationDetails | null>(null)
 const options = ref<TranslationOptions>({ autoFallback: true })
 const expanded = ref(false)
@@ -28,7 +50,7 @@ const errors: Record<string, string> = {
   request_timeout: 'OpenRouter nie odpowiedział w wyznaczonym czasie. Spróbuj innego darmowego modelu lub wznów później.',
   connection_failed: 'Nie udało się połączyć z OpenRouter. Sprawdź dostępność usługi i wznów później.',
   invalid_provider_response: 'Odpowiedź API OpenRouter miała nieprawidłową strukturę. Spróbuj innego darmowego modelu.',
-  http_429: 'Dostawca ograniczył liczbę żądań. Spróbuj innego darmowego modelu lub wznów później.',
+  http_429: 'Limit OpenRouter. Ograniczenie liczby żądań może obejmować także inne darmowe modele.',
   model_no_longer_free: 'Wybrany model nie jest obecnie darmowy lub dostępny.',
   translation_request_failed: 'Żądanie do modelu nie powiodło się. Sprawdź historię prób i wybierz inny model przy wznowieniu.',
   server_restart: 'Serwer został uruchomiony ponownie. Zapisane fragmenty są zachowane.',
@@ -54,7 +76,10 @@ async function download(index: number, format: 'txt' | 'md') {
   catch { detailError.value = 'Nie udało się pobrać tłumaczenia rozdziału.' }
 }
 async function editOptions() { await loadDetails(); if (details.value) { editing.value = true; expanded.value = true } }
-function resume() { emit('resume', editing.value ? options.value : undefined); editing.value = false }
+function resume() {
+  if (coolingDown.value || props.busy || (editing.value && !contextReady.value)) return
+  emit('resume', editing.value ? options.value : undefined); editing.value = false
+}
 </script>
 
 <template>
@@ -62,6 +87,12 @@ function resume() { emit('resume', editing.value ? options.value : undefined); e
     <div aria-live="polite" aria-atomic="true">
       <p>Translation: {{ job.status }} · {{ job.completedChapters }} / {{ job.totalChapters }} chapters</p>
       <p v-if="job.error" class="mt-1 text-amber-200">{{ reason }}</p>
+      <p v-if="job.retryAt && Number.isFinite(retryDeadline) && ['queued', 'running', 'paused'].includes(job.status)" class="mt-1 text-amber-200">
+        Limit OpenRouter. Następna próba nie wcześniej niż <time :datetime="job.retryAt">{{ formatDeadline(job.retryAt) }}</time>.
+        <template v-if="job.status === 'queued' || job.status === 'running'">Tłumaczenie zostanie wznowione automatycznie.</template>
+        <template v-else-if="coolingDown">Resume będzie dostępne po upływie tego czasu. Wznowienie wymaga kliknięcia.</template>
+        <template v-else>Możesz wznowić tłumaczenie przyciskiem Resume.</template>
+      </p>
       <p v-if="job.status === 'completed'" class="mt-1 text-emerald-300">
         Polish EPUB added as a separate library entry ({{ job.outputLibraryEntryId }}). Download or send it from its library card.
       </p>
@@ -99,6 +130,10 @@ function resume() { emit('resume', editing.value ? options.value : undefined); e
             <p>{{ attempt.startedAt }} · rozdział {{ attempt.chapterIndex + 1 }}, fragment {{ attempt.segmentIndex + 1 }} · {{ attempt.status }}</p>
             <p class="break-all">{{ attempt.requestedModel }} → {{ attempt.actualModel ?? 'dostawca nie podał modelu' }}</p>
             <p v-if="attempt.message" class="text-amber-200">{{ attempt.message }} ({{ attempt.errorCode }})</p>
+            <p v-if="attempt.retryAt">Następna próba nie wcześniej niż <time :datetime="attempt.retryAt">{{ formatDeadline(attempt.retryAt) }}</time>.</p>
+            <p v-if="attempt.rateLimitScope">Zakres limitu: {{ scopeLabels[attempt.rateLimitScope] }}</p>
+            <p v-if="attempt.rateLimitLimit != null">Limit: {{ attempt.rateLimitLimit }}</p>
+            <p v-if="attempt.rateLimitRemaining != null">Pozostało: {{ attempt.rateLimitRemaining }}</p>
             <p>{{ attempt.itemCount }} elementów · tokeny {{ attempt.inputTokens }}/{{ attempt.outputTokens }} · zakończenie: {{ attempt.finishReason ?? 'brak danych' }}</p>
           </li>
         </ol>
@@ -111,7 +146,7 @@ function resume() { emit('resume', editing.value ? options.value : undefined); e
     </div>
     <AlertMessage v-if="error" variant="error" :message="error" />
     <div v-if="canResume || canCancel || error" class="flex flex-wrap gap-2">
-      <BaseButton v-if="canResume" data-testid="translation-resume-btn" :disabled="busy || (editing && !contextReady)" @click="resume">Resume</BaseButton>
+      <BaseButton v-if="canResume" data-testid="translation-resume-btn" :disabled="busy || coolingDown || (editing && !contextReady)" @click="resume">Resume</BaseButton>
       <BaseButton v-if="canResume" variant="secondary" :disabled="busy" @click="editOptions">Zmień model / kontekst</BaseButton>
       <BaseButton v-if="canCancel" data-testid="translation-cancel-btn" variant="secondary" :disabled="busy" @click="emit('cancel')">Cancel translation</BaseButton>
       <BaseButton v-if="error" variant="secondary" :disabled="busy" @click="emit('retry')">Refresh status</BaseButton>
