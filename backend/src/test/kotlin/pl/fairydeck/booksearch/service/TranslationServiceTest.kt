@@ -47,9 +47,134 @@ class TranslationServiceTest {
         }
     }
 
-    private fun service(scope: CoroutineScope) = TranslationService(jobs, chapters, settings, library, EpubTranslationWorkspace(dir.resolve("jobs")), client, scope, ActivityLogService(ActivityLogRepository(dsl)), retryDelayMillis = 0)
+    private fun service(scope: CoroutineScope, policy: TranslationRateLimitPolicy = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")))) = TranslationService(jobs, chapters, settings, library, EpubTranslationWorkspace(dir.resolve("jobs")), client, scope, ActivityLogService(ActivityLogRepository(dsl)), retryDelayMillis = 0, rateLimits = policy)
     private suspend fun awaitStopped(service: TranslationService, id: String) {
         withTimeout(5000) { while (service.status(owner, id).status in listOf("queued", "running")) yield() }
+    }
+
+    @Test fun `catalog rate limit pauses safely with persisted metadata before any completion`() = runBlocking {
+        val now = Instant.parse("2026-09-16T12:00:00Z")
+        val policy = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")), { now }, { fail("No wait expected") }, { 0 })
+        var catalogs = 0
+        coEvery { client.listFreeTextModels() } answers {
+            if (++catalogs > 1) throw OpenRouterException("secret", true, "http_429", OpenRouterRateLimit("platform", now.plusSeconds(86400).toString()))
+            listOf(OpenRouterModel("free", "Free"))
+        }
+        val service = service(this, policy)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        assertEquals("http_429", service.status(owner, id).error)
+        assertNotNull(service.status(owner, id).retryAt)
+        assertTrue(service.details(owner, id).attempts.isEmpty())
+        assertThrows(ConflictException::class.java) { runBlocking { service.resume(owner, id) } }
+        assertEquals(2, catalogs)
+        io.mockk.coVerify(exactly = 0) { client.translate(any(), any()) }
+    }
+
+    @Test fun `throttled smaller group retains previously validated groups`() = runBlocking {
+        translationFixture(dir.resolve("source.epub"), (1..25).joinToString("") { "<p>Item $it</p>" })
+        var now = Instant.parse("2026-09-16T12:00:00Z")
+        val waits = mutableListOf<Long>()
+        val sizes = mutableListOf<Int>()
+        val policy = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")), { now }, { waits.add(it); now = now.plusMillis(it) }, { 0 })
+        coEvery { client.translate(any(), any()) } answers {
+            val texts = kotlinx.serialization.json.Json.decodeFromString<List<String>>(secondArg<String>().substringAfterLast("items:\n"))
+            sizes.add(texts.size)
+            if (sizes.size == 1) OpenRouterCompletion("invalid JSON")
+            else if (sizes.size == 3) throw OpenRouterException("safe", true, "http_429")
+            else OpenRouterCompletion(kotlinx.serialization.json.Json.encodeToString(texts.map { "Polski $it" }))
+        }
+        val service = service(this, policy)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
+        assertEquals(listOf(25, 12, 12, 12, 1, 1), sizes)
+        assertEquals(listOf(60_000L), waits)
+        assertEquals(listOf("invalid_json", null, "http_429", null, null, null), service.details(owner, id).attempts.map { it.errorCode })
+    }
+
+    @Test fun `one throttled completion waits and retries same model then completes`() = runBlocking {
+        var now = Instant.parse("2026-09-16T12:00:00Z")
+        val waits = mutableListOf<Long>()
+        val calls = mutableListOf<String>()
+        val policy = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")), { now }, { waits.add(it); now = now.plusMillis(it) }, { 0 })
+        coEvery { client.translate(any(), any()) } answers {
+            calls.add(firstArg())
+            if (calls.size == 1) throw OpenRouterException("secret", true, "http_429", OpenRouterRateLimit())
+            assertEquals(listOf(60_000L), waits)
+            OpenRouterCompletion(if (secondArg<String>().contains("Hello")) """["Cześć ","świecie","!"]""" else """["Drugi"]""")
+        }
+        val service = service(this, policy)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
+        assertEquals(listOf("free", "free", "free"), calls)
+        val attempt = service.details(owner, id).attempts.first()
+        assertEquals("http_429", attempt.errorCode)
+        assertEquals("2026-09-16T12:01:00Z", attempt.retryAt)
+        assertEquals("unknown", attempt.rateLimitScope)
+        assertFalse(attempt.toString().contains("secret"))
+    }
+
+    @Test fun `all rate limit scopes pause after three responses without model fallback`() = runBlocking {
+        coEvery { client.listFreeTextModels() } returns listOf(OpenRouterModel("free", "Free"), OpenRouterModel("other-free", "Other"))
+        for (origin in listOf("platform", "provider", "unknown")) {
+            var now = Instant.parse("2026-09-16T12:00:00Z")
+            val waits = mutableListOf<Long>()
+            val calls = mutableListOf<String>()
+            val workspace = EpubTranslationWorkspace(dir.resolve("jobs"))
+            val policy = TranslationRateLimitPolicy(workspace, { now }, { waits.add(it); now = now.plusMillis(it) }, { 0 })
+            coEvery { client.translate(any(), any()) } answers {
+                calls.add(firstArg())
+                throw OpenRouterException("secret", true, "http_429", OpenRouterRateLimit(origin, limit = 20, remaining = 0))
+            }
+            val service = service(this, policy)
+            val id = service.start(owner, entryId, true).jobId
+            awaitStopped(service, id)
+            assertEquals(listOf("free", "free", "free"), calls)
+            assertEquals(listOf(60_000L, 120_000L), waits)
+            assertEquals("http_429", service.status(owner, id).error)
+            assertTrue(service.status(owner, id).resumable)
+            assertEquals(origin, service.status(owner, id).rateLimitScope)
+            assertEquals("2026-09-16T12:07:00Z", service.status(owner, id).retryAt)
+            assertTrue(service.details(owner, id).attempts.all { it.errorCode == "http_429" && it.rateLimitLimit == 20L && it.rateLimitRemaining == 0L })
+            assertThrows(ConflictException::class.java) { runBlocking { service.resume(owner, id, TranslationOptions(modelId = "other-free")) } }
+            assertEquals(3, calls.size)
+            // Advance past the shared record before the next independent scenario.
+            now = now.plusSeconds(240)
+            service.cancel(owner, id)
+            java.nio.file.Files.deleteIfExists(dir.resolve("jobs/.rate-limits/shared.json"))
+        }
+    }
+
+    @Test fun `day long cooldown survives restart rejects resume and preserves saved chapter bytes`() = runBlocking {
+        var now = Instant.parse("2026-09-16T12:00:00Z")
+        val deadline = now.plusSeconds(86400).toString()
+        var calls = 0
+        fun policy() = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")), { now }, { fail("Must not wait for day-long cooldown") }, { 0 })
+        coEvery { client.translate(any(), any()) } answers {
+            calls++
+            if (secondArg<String>().contains("Hello")) OpenRouterCompletion("""["Cześć ","świecie","!"]""")
+            else throw OpenRouterException("secret", true, "http_429", OpenRouterRateLimit("platform", deadline))
+        }
+        val initial = service(this, policy())
+        val id = initial.start(owner, entryId, true).jobId
+        awaitStopped(initial, id)
+        assertEquals(2, calls)
+        assertEquals(1, initial.status(owner, id).completedChapters)
+        val before = dir.resolve("jobs/$id/0-0.json").toFile().readBytes()
+        val restarted = service(this, policy())
+        assertEquals(deadline, restarted.status(owner, id).retryAt)
+        assertThrows(ConflictException::class.java) { runBlocking { restarted.resume(owner, id) } }
+        assertEquals(2, calls)
+        now = now.plusSeconds(86400)
+        coEvery { client.translate(any(), any()) } answers { calls++; OpenRouterCompletion("""["Drugi"]""") }
+        restarted.resume(owner, id)
+        awaitStopped(restarted, id)
+        assertEquals("completed", restarted.status(owner, id).status)
+        assertEquals(3, calls)
+        assertNull(restarted.status(owner, id).retryAt)
+        assertArrayEquals(before, dir.resolve("jobs/$id/0-0.json").toFile().readBytes())
     }
 
     @Test fun `fallback records actual model and validation reason then completes without paid calls`() = runBlocking {

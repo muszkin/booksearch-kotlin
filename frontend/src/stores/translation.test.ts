@@ -29,6 +29,82 @@ afterEach(() => {
 })
 
 describe('translation store', () => {
+  it('refreshes a server cooldown after Resume returns conflict', async () => {
+    vi.setSystemTime(new Date('2026-09-16T12:00:00Z'))
+    vi.mocked(TranslationService.resumeTranslation).mockRejectedValue(new ApiError(
+      { method: 'POST', url: '/resume' },
+      { url: '/resume', ok: false, status: 409, statusText: 'Conflict', body: {} }, 'Conflict',
+    ))
+    const paused = { ...job, status: TranslationJobState.PAUSED, resumable: true }
+    vi.mocked(TranslationService.getTranslationStatus).mockResolvedValue({ ...paused, retryAt: '2026-09-16T12:01:00Z' })
+    const store = useTranslationStore()
+    store.jobs.set(job.jobId, paused)
+    await store.resume(job.jobId)
+    expect(store.jobs.get(job.jobId)?.retryAt).toBe('2026-09-16T12:01:00Z')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledTimes(2)
+    expect(TranslationService.resumeTranslation).toHaveBeenCalledOnce()
+  })
+
+  it.each(['cleanup', '$dispose', 'logout'] as const)('clears paused cooldown polling and ignores pending status on %s', async (action) => {
+    vi.setSystemTime(new Date('2026-09-16T12:00:00Z'))
+    useAuthStore().user = { id: 7 } as UserResponse
+    const paused = { ...job, status: TranslationJobState.PAUSED, retryAt: '2026-09-16T12:01:00Z' }
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([paused])
+    let resolve!: (value: TranslationStatusResponse) => void
+    vi.mocked(TranslationService.getTranslationStatus).mockReturnValueOnce(new Promise(done => { resolve = done }) as ReturnType<typeof TranslationService.getTranslationStatus>)
+    const store = useTranslationStore()
+    await store.restore()
+    await vi.advanceTimersByTimeAsync(5000)
+    if (action === 'logout') useAuthStore().user = null
+    else store[action]()
+    resolve({ ...job, completedChapters: 9 })
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledOnce()
+    expect(store.jobs.get(job.jobId)?.completedChapters).not.toBe(9)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['restore', 'refreshStatus'] as const)('polls a paused cooldown via %s until expiry without automatic Resume', async (method) => {
+    vi.setSystemTime(new Date('2026-09-16T12:00:00Z'))
+    const paused = { ...job, status: TranslationJobState.PAUSED, resumable: true, retryAt: '2026-09-16T12:00:12Z' }
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([paused])
+    vi.mocked(TranslationService.getTranslationStatus).mockResolvedValue(paused)
+    const store = useTranslationStore()
+    if (method === 'restore') await store.restore()
+    else await store.refreshStatus(job.jobId)
+    vi.mocked(TranslationService.getTranslationStatus).mockClear()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledTimes(3)
+    expect(TranslationService.resumeTranslation).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('continues polling when running becomes paused with cooldown and stops when server clears it', async () => {
+    vi.setSystemTime(new Date('2026-09-16T12:00:00Z'))
+    vi.mocked(TranslationService.getTranslationStatus)
+      .mockResolvedValueOnce({ ...job, status: TranslationJobState.PAUSED, retryAt: '2026-09-16T12:01:00Z' })
+      .mockResolvedValue({ ...job, status: TranslationJobState.PAUSED, retryAt: null })
+    const store = useTranslationStore()
+    store.poll(job.jobId)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(TranslationService.getTranslationStatus).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not submit Resume with changed model or context before cooldown expires', async () => {
+    vi.setSystemTime(new Date('2026-09-16T12:00:00Z'))
+    const store = useTranslationStore()
+    store.jobs.set(job.jobId, { ...job, status: TranslationJobState.PAUSED, resumable: true, retryAt: '2026-09-16T12:01:00Z' })
+    await store.resume(job.jobId, { modelId: 'another/free' })
+    expect(TranslationService.resumeTranslation).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(61_000)
+    await store.resume(job.jobId, { modelId: 'another/free' })
+    expect(TranslationService.resumeTranslation).toHaveBeenCalledExactlyOnceWith(job.jobId, { modelId: 'another/free' })
+  })
+
   it('selects the newest completed translation after discovery', async () => {
     vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([
       { ...job, jobId: 'newest', status: TranslationJobState.COMPLETED },

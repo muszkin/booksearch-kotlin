@@ -12,6 +12,7 @@ import pl.fairydeck.booksearch.api.NotFoundException
 import pl.fairydeck.booksearch.api.ValidationException
 import pl.fairydeck.booksearch.infrastructure.OpenRouterClient
 import pl.fairydeck.booksearch.infrastructure.OpenRouterException
+import pl.fairydeck.booksearch.infrastructure.OpenRouterRateLimit
 import pl.fairydeck.booksearch.repository.*
 import java.io.IOException
 import java.util.concurrent.TimeoutException
@@ -27,7 +28,8 @@ class TranslationService(
     private val client: OpenRouterClient?,
     private val scope: CoroutineScope,
     private val activityLog: ActivityLogService,
-    private val retryDelayMillis: Long = 1000
+    private val retryDelayMillis: Long = 1000,
+    private val rateLimits: TranslationRateLimitPolicy = TranslationRateLimitPolicy(workspace)
 ) {
     private val requests = Mutex()
     private val transitions = Any()
@@ -118,14 +120,17 @@ class TranslationService(
     fun status(userId: Int, jobId: String): TranslationStatus = toStatus(owned(userId, jobId))
 
     private fun toStatus(job: pl.fairydeck.booksearch.jooq.generated.tables.records.TranslationJobsRecord): TranslationStatus {
+        val cooldown = if (job.status in listOf("queued", "running", "paused")) rateLimits.active(job.id!!) else null
         return TranslationStatus(job.id!!, job.status!!, job.sourceLibraryEntryId!!, job.modelId!!,
             job.totalChapters!!, job.completedChapters!!, job.failedChapterIndex, job.estimatedInputTokens!!,
-            job.actualInputTokens!!, job.actualOutputTokens!!, job.outputLibraryEntryId, job.error, job.status == "paused")
+            job.actualInputTokens!!, job.actualOutputTokens!!, job.outputLibraryEntryId, if (cooldown != null) "http_429" else job.error,
+            job.status == "paused", cooldown?.retryAt, cooldown?.scope)
     }
 
     suspend fun resume(userId: Int, jobId: String, options: TranslationOptions? = null): TranslationStarted {
         val job = owned(userId, jobId)
         if (job.status != "paused") throw ConflictException("Only paused translations can resume")
+        rejectActiveCooldown(jobId)
         val source = library.translationSource(userId, job.sourceLibraryEntryId!!)
         if (source.bookMd5 != job.sourceBookMd5 || source.file.absolutePath != job.sourceFilePath) throw ValidationException("Translation source changed")
         val plan = validPlan { workspace.load(jobId) }
@@ -137,6 +142,7 @@ class TranslationService(
         else if (client?.listFreeTextModels().isNullOrEmpty()) throw ValidationException("No free models available")
         return synchronized(transitions) {
             if (owned(userId, jobId).status != "paused") throw ConflictException("Translation is no longer paused")
+            rejectActiveCooldown(jobId)
             if (options != null) workspace.saveOptions(jobId, prepared)
             jobs.setModel(jobId, preferred)
             jobs.queue(jobId)
@@ -161,6 +167,10 @@ class TranslationService(
                 }
                 try { execute(userId, jobId) }
                 catch (e: CancellationException) { jobs.markPaused(jobId, "server_restart"); throw e }
+                catch (e: OpenRouterException) {
+                    if (e.code == "http_429") rateLimits.record(jobId, e.rateLimit ?: OpenRouterRateLimit(), 1)
+                    jobs.markPaused(jobId, e.code)
+                }
                 catch (_: Exception) { jobs.markPaused(jobId, "workspace_failed") }
             }
         }
@@ -199,6 +209,7 @@ class TranslationService(
                 catch (e: Exception) {
                     val error = when (e) { is OpenRouterException -> e.code; is TranslationWorkspaceException -> e.code; else -> "translation_request_failed" }
                     chapters.markFailed(jobId, chapter.index, error)
+                    if (error == "http_429") { jobs.markPaused(jobId, error, chapter.index); return }
                     val retryable = e is TimeoutException || e is IOException || e is TranslationWorkspaceException || (e is OpenRouterException && e.retryable)
                     if (error == "model_no_longer_free") {
                         unavailable.add(model)
@@ -224,26 +235,34 @@ class TranslationService(
         var inputs = 0; var outputs = 0
         for (indices in groups) {
             val part = segment.copy(texts = indices.map { segment.texts[it] }, nodes = indices.map { segment.nodes[it] })
-            var event = TranslationAttempt(chapterIndex = segment.chapterIndex, segmentIndex = segment.index, requestedModel = model, itemCount = part.texts.size)
-            workspace.recordAttempt(jobId, event)
-            try {
-                val response = client!!.translate(model, workspace.prompt(part, options.promptContext()))
-                inputs += response.inputTokens; outputs += response.outputTokens
-                chapters.addUsage(jobId, segment.chapterIndex, response.inputTokens, response.outputTokens)
-                updateProgress(jobId)
-                event = event.copy(actualModel = response.model, inputTokens = response.inputTokens, outputTokens = response.outputTokens, finishReason = response.finishReason)
-                if (response.finishReason == "length") throw TranslationWorkspaceException("output_truncated", "Model exhausted its output limit before completing the translation.")
-                if (response.content.isBlank()) throw TranslationWorkspaceException("empty_response", "Model returned no translation text.")
-                combined.addAll(workspace.validateResponse(part.texts.size, response.content))
-                workspace.recordAttempt(jobId, event.copy(status = "completed"))
-            } catch (e: CancellationException) {
-                workspace.recordAttempt(jobId, event.copy(status = "interrupted", errorCode = "server_restart", message = "Request interrupted; resume is available.")); throw e
-            } catch (e: Exception) {
-                val code = when (e) { is TranslationWorkspaceException -> e.code; is OpenRouterException -> e.code; else -> "translation_request_failed" }
-                val message = when (e) { is TranslationWorkspaceException -> e.detail; is OpenRouterException -> "OpenRouter request failed ($code)."; else -> "Request failed before a valid translation was received." }
-                workspace.recordAttempt(jobId, event.copy(status = "failed", errorCode = code, message = message))
-                logger.warn("Translation job={} chapter={} segment={} model={} code={}", jobId, segment.chapterIndex, segment.index, model, code)
-                throw e
+            var throttled = 0
+            while (true) {
+                rateLimits.awaitReady(jobId)
+                var event = TranslationAttempt(chapterIndex = segment.chapterIndex, segmentIndex = segment.index, requestedModel = model, itemCount = part.texts.size)
+                workspace.recordAttempt(jobId, event)
+                try {
+                    val response = client!!.translate(model, workspace.prompt(part, options.promptContext()))
+                    inputs += response.inputTokens; outputs += response.outputTokens
+                    chapters.addUsage(jobId, segment.chapterIndex, response.inputTokens, response.outputTokens)
+                    updateProgress(jobId)
+                    event = event.copy(actualModel = response.model, inputTokens = response.inputTokens, outputTokens = response.outputTokens, finishReason = response.finishReason)
+                    if (response.finishReason == "length") throw TranslationWorkspaceException("output_truncated", "Model exhausted its output limit before completing the translation.")
+                    if (response.content.isBlank()) throw TranslationWorkspaceException("empty_response", "Model returned no translation text.")
+                    combined.addAll(workspace.validateResponse(part.texts.size, response.content))
+                    workspace.recordAttempt(jobId, event.copy(status = "completed"))
+                    break
+                } catch (e: CancellationException) {
+                    workspace.recordAttempt(jobId, event.copy(status = "interrupted", errorCode = "server_restart", message = "Request interrupted; resume is available.")); throw e
+                } catch (e: Exception) {
+                    val code = when (e) { is TranslationWorkspaceException -> e.code; is OpenRouterException -> e.code; else -> "translation_request_failed" }
+                    val message = when (e) { is TranslationWorkspaceException -> e.detail; is OpenRouterException -> "OpenRouter request failed ($code)."; else -> "Request failed before a valid translation was received." }
+                    val cooldown = if (e is OpenRouterException && code == "http_429") rateLimits.record(jobId, e.rateLimit ?: OpenRouterRateLimit(), ++throttled) else null
+                    workspace.recordAttempt(jobId, event.copy(status = "failed", errorCode = code, message = message,
+                        retryAt = cooldown?.retryAt, rateLimitScope = cooldown?.scope, rateLimitLimit = cooldown?.limit, rateLimitRemaining = cooldown?.remaining))
+                    logger.warn("Translation job={} chapter={} segment={} model={} code={}", jobId, segment.chapterIndex, segment.index, model, code)
+                    if (cooldown != null && throttled < 3) continue
+                    throw e
+                }
             }
         }
         workspace.replaceSegment(segment, Json.encodeToString(combined), inputs, outputs)
@@ -254,6 +273,10 @@ class TranslationService(
         try {
             if (available.listFreeTextModels().none { it.id == model }) throw ValidationException("Selected translation model is no longer free")
         } catch (_: OpenRouterException) { throw ValidationException("Could not validate the free translation model") }
+    }
+
+    private fun rejectActiveCooldown(jobId: String) {
+        if (rateLimits.active(jobId) != null) throw ConflictException("Translation rate limit cooldown is still active")
     }
 
     private fun updateProgress(jobId: String) {
@@ -270,4 +293,5 @@ class TranslationService(
 @Serializable data class TranslationStarted(val jobId: String, val status: String = "queued")
 @Serializable data class TranslationStatus(val jobId: String, val status: String, val sourceLibraryEntryId: Int, val modelId: String,
     val totalChapters: Int, val completedChapters: Int, val failedChapterIndex: Int?, val estimatedInputTokens: Int,
-    val actualInputTokens: Int, val actualOutputTokens: Int, val outputLibraryEntryId: Int?, val error: String?, val resumable: Boolean)
+    val actualInputTokens: Int, val actualOutputTokens: Int, val outputLibraryEntryId: Int?, val error: String?, val resumable: Boolean,
+    val retryAt: String? = null, val rateLimitScope: String? = null)

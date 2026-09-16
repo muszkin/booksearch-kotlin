@@ -33,7 +33,11 @@ data class TranslationAttempt(
     @EncodeDefault val inputTokens: Int = 0,
     @EncodeDefault val outputTokens: Int = 0,
     @EncodeDefault val itemCount: Int = 0,
-    val finishReason: String? = null
+    val finishReason: String? = null,
+    val retryAt: String? = null,
+    val rateLimitScope: String? = null,
+    val rateLimitLimit: Long? = null,
+    val rateLimitRemaining: Long? = null
 )
 
 @Serializable
