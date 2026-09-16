@@ -167,7 +167,7 @@ class OpenRouterClient(
     private data class OpenRouterRequestMessage(val role: String, val content: String)
 
     @Serializable
-    private data class OpenRouterMessage(val role: String = "user", val content: String)
+    private data class OpenRouterMessage(val role: String = "user", val content: String? = null)
 
     @Serializable
     private data class OpenRouterCompletionResponse(val choices: List<OpenRouterChoice> = emptyList(), val usage: OpenRouterUsage? = null, val model: String? = null)
