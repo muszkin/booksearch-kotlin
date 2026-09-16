@@ -22,6 +22,49 @@ import org.junit.jupiter.api.Test
 
 class OpenRouterClientTest {
 
+    @Test fun `Ktor request deadline reports a retryable timeout`() = runBlocking {
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else { kotlinx.coroutines.delay(5_000); respondJson("{}") }
+        }) { install(io.ktor.client.plugins.HttpTimeout) { requestTimeoutMillis = 100 } })
+        try {
+            val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "source") } }
+            assertEquals("request_timeout", error.code)
+            assertEquals(true, error.retryable)
+        } finally { client.close() }
+    }
+
+    @Test fun `transport failures distinguish timeouts and connection errors without leaking details`() = runBlocking {
+        for ((cause, code) in listOf(
+            java.net.SocketTimeoutException("secret prose test-key") to "request_timeout",
+            java.io.IOException("secret prose test-key") to "connection_failed"
+        )) {
+            val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+                if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse()) else throw cause
+            }))
+            try {
+                val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "secret prose") } }
+                assertEquals(code, error.code)
+                assertEquals(true, error.retryable)
+                assertFalse(error.message.orEmpty().contains("secret prose"))
+                assertFalse(error.message.orEmpty().contains("test-key"))
+            } finally { client.close() }
+        }
+    }
+
+    @Test fun `invalid provider envelope is distinct from invalid translated JSON`() = runBlocking {
+        val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
+            if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
+            else respondJson("not-json secret prose test-key")
+        }))
+        try {
+            val error = assertThrows(OpenRouterException::class.java) { runBlocking { client.translate("free", "secret prose") } }
+            assertEquals("invalid_provider_response", error.code)
+            assertFalse(error.message.orEmpty().contains("secret prose"))
+            assertFalse(error.message.orEmpty().contains("test-key"))
+        } finally { client.close() }
+    }
+
     @Test fun `null content preserves actual model usage and truncation reason`() = runBlocking {
         val client = OpenRouterClient(testConfig(), HttpClient(MockEngine { request ->
             if (request.url.encodedPath == "/api/v1/models") respondJson(modelsResponse())
