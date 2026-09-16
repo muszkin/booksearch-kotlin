@@ -21,6 +21,29 @@ class LibraryService(
 
     private val logger = LoggerFactory.getLogger(LibraryService::class.java)
 
+    fun validateTranslationReferenceDownload(userId: Int, sourceId: Int, md5: String) {
+        val source = userLibraryRepository.findByIdAndUserId(sourceId, userId) ?: throw NotFoundException("Library entry not found")
+        val author = bookRepository.findByMd5(source.bookMd5!!)!!.author.orEmpty().trim()
+        val reference = bookRepository.findByMd5(md5) ?: throw NotFoundException("Reference not indexed; search by title first")
+        if (author.isBlank() || !reference.author.orEmpty().trim().equals(author, true) ||
+            !reference.format.equals("epub", true) || !isPolish(reference.language.orEmpty()))
+            throw pl.fairydeck.booksearch.api.ValidationException("Reference must be a Polish EPUB by the same author")
+    }
+
+    fun translationReferences(userId: Int, sourceId: Int): List<LibraryBook> {
+        val source = userLibraryRepository.findByIdAndUserId(sourceId, userId) ?: throw NotFoundException("Library entry not found")
+        val author = bookRepository.findByMd5(source.bookMd5!!)!!.author.orEmpty().trim()
+        if (author.isBlank()) return emptyList()
+        return userLibraryRepository.findByUserId(userId, 1, 200, referenceAuthor = author)
+            .filter { isPolish(it.language) && !it.filePath.isNullOrBlank() }.map { it.toLibraryBook() }
+    }
+
+    fun translationReference(userId: Int, sourceId: Int, referenceId: Int): File {
+        if (translationReferences(userId, sourceId).none { it.id == referenceId })
+            throw pl.fairydeck.booksearch.api.ValidationException("Reference must be your downloaded Polish EPUB by the same author")
+        return File(getFileForEntry(userId, referenceId).absolutePath)
+    }
+
     fun translationSource(userId: Int, entryId: Int): TranslationSource {
         val file = getFileForEntry(userId, entryId)
         val entry = userLibraryRepository.findByIdAndUserId(entryId, userId)
@@ -294,4 +317,8 @@ data class TranslationSource(val bookMd5: String, val file: File)
 
 internal fun isEnglish(language: String): Boolean = language.trim().lowercase().let {
     it in setOf("en", "eng", "english") || it.startsWith("en-") || it.startsWith("english ")
+}
+
+internal fun isPolish(language: String): Boolean = language.trim().lowercase().let {
+    it in setOf("pl", "pol", "polish", "polski") || it.startsWith("pl-") || it.startsWith("polish ") || it.startsWith("polski ")
 }

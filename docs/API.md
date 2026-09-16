@@ -96,6 +96,51 @@ routinely takes longer than the 120 second proxy read timeout, which surfaced as
 | GET | `/api/openapi.json` | No | OpenAPI 3.0 specification (JSON). |
 | GET | `/swagger-ui` | No | Swagger UI for interactive API exploration. |
 
+## EPUB translation control
+
+All translation endpoints require JWT and scope library entries/jobs to the authenticated user.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | `/api/translation/{libraryId}/references` | Downloaded Polish EPUBs by the source author in the user's library. |
+| POST | `/api/translation/{libraryId}/context-preview` | Preview deterministic chapter samples before confirmation; accepts options, returns server-generated `referenceText`, sends no text to a model. |
+| POST | `/api/translation/{libraryId}/references/{md5}/download` | Validate indexed metadata, then queue the existing download workflow; never automatically deliver to a device. Unknown links must first be indexed through search. |
+| POST | `/api/translation/{libraryId}` | Start with `externalProcessingConfirmed: true` and optional `options`. |
+| GET | `/api/translation/jobs` | Rediscover owned queued, running, paused and completed jobs, newest first. Completed jobs remain discoverable for chapter export. |
+| GET | `/api/translation/jobs/{jobId}/details` | Persisted options, sampled context, chapter progress and per-request diagnostics. |
+| GET | `/api/translation/jobs/{jobId}/chapters/{index}/export?format=txt` | Download saved translated text; `md` is also supported. Index is zero-based EPUB spine order (including front matter). Partial chapters are explicitly marked; no untranslated source is substituted. |
+| POST | `/api/translation/jobs/{jobId}/resume` | Empty body preserves existing behavior; an optional `TranslationOptions` body changes model/context for unsaved segments only. |
+
+Options: `modelId`, `autoFallback` (default true), `fallbackModelIds` (ordered,
+at most 10 IDs), `referenceLibraryIds` (at most 5), `referenceChapters` (1–5,
+default 3), `glossary` (12,000 characters), and `notes` (4,000 characters).
+Lists are bounded: reference candidates are selected from the latest 200 owned
+EPUBs by that author; discovery includes all active jobs plus the latest 100
+completed jobs; details return the most recently updated 300 attempt records.
+Earlier attempt files remain in the private workspace.
+
+`referenceText` is generated server-side: up to 1,600 characters from each
+sampled chapter and 16,000 characters overall. Samples persist across resume
+unless reference selection/count changes. Reference catalog metadata and EPUB
+language are validated before sending context.
+
+Each chapter has at most three attempts per model and five models per run.
+Automatic fallback chooses currently free text models unless an ordered list
+is provided; every completion request rechecks pricing. Invalid output is
+retried in smaller text-node batches without changing existing checkpoint
+filenames. Authentication/billing failures pause immediately. Disabling
+fallback uses only the selected model. No paid model is selected automatically.
+
+Attempt diagnostics include timestamp, chapter/segment index, requested and
+actual model, item count, token usage, finish reason and safe error detail.
+Codes distinguish `invalid_json`, `item_count_mismatch`, `empty_translation`,
+`empty_response`, `invalid_characters`, `output_truncated` and `http_<status>`.
+Logs do not contain source text, raw model replies or credentials. Historical
+attempts from before this release cannot be reconstructed. Existing workspaces
+without options/log files remain resumable and exportable. No database migration
+or additional OpenRouter key is required; descriptions and translations use the
+same configured key. Device delivery behavior is unchanged.
+
 ## Error Format
 
 All errors return a consistent JSON envelope:

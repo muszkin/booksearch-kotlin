@@ -11,7 +11,7 @@ import { useLibraryStore } from '@/stores/library'
 import { useTranslationStore } from '@/stores/translation'
 import TranslationDialog from '@/components/library/TranslationDialog.vue'
 import TranslationProgress from '@/components/library/TranslationProgress.vue'
-import type { LibraryBook } from '@/api/generated'
+import type { LibraryBook, TranslationOptions } from '@/api/generated'
 import apiClient from '@/api/client'
 
 const store = useLibraryStore()
@@ -23,8 +23,8 @@ function openTranslation(book: LibraryBook) {
   void translation.estimate(book.id)
 }
 
-async function startTranslation() {
-  if (translationBook.value && await translation.start(translationBook.value.id)) translationBook.value = null
+async function startTranslation(options: TranslationOptions) {
+  if (translationBook.value && await translation.start(translationBook.value.id, options)) translationBook.value = null
 }
 const selectedIds = ref(new Set<number>())
 const deliveryLoading = reactive(new Map<number, boolean>())
@@ -158,10 +158,11 @@ function handleRemove(bookId: number) {
   <PageHeader title="Library" />
 
   <TranslationDialog
-    v-if="translationBook" :key="translationBook.id" :title="translationBook.title"
+    v-if="translationBook" :key="translationBook.id" :title="translationBook.title" :source-id="translationBook.id" :author="translationBook.author"
     :estimate="translation.estimates.get(translationBook.id) ?? null" :loading="translation.loading"
     :starting="translation.starting" :error="translation.error"
     @start="startTranslation" @close="translationBook = null" @retry="translation.estimate(translationBook.id)"
+    @estimate-model="translation.estimate(translationBook.id, $event)"
   />
 
   <div class="p-6">
@@ -245,8 +246,8 @@ function handleRemove(bookId: number) {
             />
             <TranslationProgress
               v-for="job in [translation.jobForLibrary(book.id)].filter((job) => !!job)" :key="job.jobId"
-              :job="job" :busy="translation.busyJobs.has(job.jobId)" :error="translation.jobErrors.get(job.jobId)"
-              @resume="translation.resume(job.jobId)" @cancel="translation.cancel(job.jobId)" @retry="translation.refreshStatus(job.jobId)"
+              :job="job" :author="book.author" :busy="translation.busyJobs.has(job.jobId)" :error="translation.jobErrors.get(job.jobId)"
+              @resume="translation.resume(job.jobId, $event)" @cancel="translation.cancel(job.jobId)" @retry="translation.refreshStatus(job.jobId)"
             />
           </div>
         </div>

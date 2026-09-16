@@ -35,7 +35,8 @@ Muszkin translates a downloaded English EPUB into a separate Polish EPUB for pri
 ## Scope
 
 - **Now:** from a downloaded English EPUB, a user confirms external processing and an effort estimate, starts a chapter-based translation with the default currently free model, optionally chooses compatible Polish author context, resumes failed work, and receives a separate Polish EPUB that can be downloaded or delivered. `[DOCUMENT]` `D02`, `D04`, `D16`, `D20`, `D22`, `D23`
-- **Later:** automatic series detection, broader task-level model choice, and a richer translation editing experience. `[DOCUMENT]` `D08`
+- **Now (2026-09-16 extension):** per-job free model selection, automatic free-model fallback, diagnostics and chapter TXT/Markdown export. `[USER]` D24
+- **Later:** automatic series detection and a richer translation editing experience. `[DOCUMENT]` `D08`
 - **Not doing:** see Non-goals.
 
 ## Domain glossary
@@ -65,7 +66,8 @@ Muszkin translates a downloaded English EPUB into a separate Polish EPUB for pri
 | R05 | The default model is administrator-configured and eligible only when its current listed price is zero; licence is not an eligibility criterion. | model selection | `[DOCUMENT]` `D05`, `D22` | muszkin | active | before implementation | Superseding decision record by muszkin |
 | R06 | Before a translation begins, the app shows the external-processing notice and requires the user to confirm it. | translation start | `[DOCUMENT]` `D20` | muszkin | active | 2026-09-30 | Superseding decision record by muszkin |
 | R07 | The app shows chapters, estimated tokens, indicative duration, and free-endpoint-limit warning before confirmation; it never falls back to a paid model. | translation start | `[DOCUMENT]` `D09`, `D16`, `D23` | muszkin | active | 2026-09-30 | Superseding decision record by muszkin |
-| R08 | A chapter is attempted at most three times, then waits for explicit manual resume. | translation job | `[DOCUMENT]` `D16` | muszkin | active | 2026-09-30 | Superseding decision record by muszkin |
+| R08 | A chapter is attempted at most three times, then waits for explicit manual resume. | translation job | `[DOCUMENT]` `D16` | muszkin | superseded by R10 / D24 | 2026-09-16 | D24 supersedes R08 |
+| R10 | Retry a chapter up to three times per currently free model, at most five models per run; expose attempts, preserve progress and allow manual model/context changes on resume. Never use paid fallback. | translation job | `[USER]` D24 | muszkin | active | 2026-09-30 | Superseding decision record by muszkin |
 | R09 | A book's contextual-reference role never blocks Kindle or PocketBook delivery. | library and delivery | `[DOCUMENT]` `D14`, `D18`, `D19` | muszkin | active | 2026-09-30 | Superseding decision record by muszkin |
 
 ## Non-goals
@@ -83,7 +85,7 @@ Muszkin translates a downloaded English EPUB into a separate Polish EPUB for pri
 | D01 | 2026-09-12 | Private-use translation feature. `[DOCUMENT]` `D01` | Bound the first product. | muszkin | active | 2026-09-30 | New decision record supersedes D01 |
 | D02 | 2026-09-12 | Downloaded EPUB in; separate Polish EPUB out. `[DOCUMENT]` `D02` | Preserve a usable e-reader file. | muszkin | active | 2026-09-30 | New decision record supersedes D02 |
 | D04 | 2026-09-12 | Translate in resumable chapter jobs. `[DOCUMENT]` `D04` | Show progress and recover from failures. | muszkin | active | 2026-09-30 | New decision record supersedes D04 |
-| D05 | 2026-09-12 | Administrator configures the default model. `[DOCUMENT]` `D05` | Avoid task-level model choice in version one. | muszkin | active | before implementation | New decision record supersedes D05 |
+| D05 | 2026-09-12 | Administrator configures the default model. `[DOCUMENT]` `D05` | Avoid task-level model choice in version one. | muszkin | task-level restriction superseded by D24; admin default retained | 2026-09-16 | D24 extends D05 |
 | D06 | 2026-09-12 | Permit OpenRouter processing. `[DOCUMENT]` `D06` | External processing is acceptable for private use. | muszkin | active | 2026-09-30 | New decision record supersedes D06 |
 | D07 | 2026-09-12 | Validate one useful 300-page target EPUB. `[DOCUMENT]` `D07` | Define first success. | muszkin | active | 2026-09-30 | New decision record supersedes D07 |
 | D08 | 2026-09-12 | Exclude editing, OCR, and public sharing from version one. `[DOCUMENT]` `D08` | Keep the first slice narrow. | muszkin | active | 2026-09-30 | New decision record supersedes D08 |
@@ -92,7 +94,7 @@ Muszkin translates a downloaded English EPUB into a separate Polish EPUB for pri
 | D13 | 2026-09-12 | Persist a one-to-five chapter sample. `[DOCUMENT]` `D13` | Make context repeatable. | muszkin | active | 2026-09-30 | New decision record supersedes D13 |
 | D14 | 2026-09-12 | Context status never blocks delivery. `[DOCUMENT]` `D14` | Contextual books are ordinary library items. | muszkin | active | 2026-09-30 | New decision record supersedes D14 |
 | D15 | 2026-09-12 | User confirms contextual search result. `[DOCUMENT]` `D15` | Avoid automatic wrong-edition downloads. | muszkin | active | 2026-09-30 | New decision record supersedes D15 |
-| D16 | 2026-09-12 | Stop after three failed chapter attempts. `[DOCUMENT]` `D16` | Never hide retries or switch to paid model. | muszkin | active | 2026-09-30 | New decision record supersedes D16 |
+| D16 | 2026-09-12 | Stop after three failed chapter attempts. `[DOCUMENT]` `D16` | Never hide retries or switch to paid model. | muszkin | superseded by D24 | 2026-09-16 | D24 supersedes D16 |
 | D17 | 2026-09-12 | Validate by 2026-09-30. `[DOCUMENT]` `D17` | Give the first test a deadline. | muszkin | active | 2026-09-30 | New decision record supersedes D17 |
 | D18 | 2026-09-12 | Acquire contextual books as normal deliverable library items. `[DOCUMENT]` `D18` | Replaces D12's delivery restriction. | muszkin | active | 2026-09-30 | New decision record supersedes D18 |
 | D19 | 2026-09-12 | Context affects translation, not delivery. `[DOCUMENT]` `D19` | Replaces D03's delivery implication. | muszkin | active | 2026-09-30 | New decision record supersedes D19 |
@@ -102,6 +104,23 @@ Muszkin translates a downloaded English EPUB into a separate Polish EPUB for pri
 | D23 | 2026-09-12 | Show job effort estimate without a time promise. `[DOCUMENT]` `D23` | Expose useful limits without a monetary estimate. | muszkin | active | 2026-09-30 | New decision record supersedes D23 |
 
 ## Riskiest assumptions
+
+### D24 — Translation control extension, 2026-09-16
+
+Owner/approval: muszkin, current conversation request to finish recovery of
+Inhibitor Phase, automatically try another model after router failure, expose
+logs and manual decisions, add references/glossary and export individual chapters.
+This supersedes R08/D16 and the no-per-job-model restriction of D05. The bounded
+implementation uses three attempts per model and at most five currently free
+models per run; users may disable fallback or supply an ordered list. Administrator
+default and the existing external-processing consent remain. Astra Medium refers
+only to the Codex session, not to any translation provider. N01 (no in-app editor)
+is unchanged: TXT/Markdown are read-only exports, not a translation editor.
+
+Sampling implementation: default three chapters (Q01 implementation default),
+stable preview before confirmation, up to 1,600 characters per sampled chapter
+and 16,000 total reference characters to bound free-model context. Persist the
+actual excerpts with the job; changing context applies only to unsaved segments.
 
 | Id | Assumption | Importance | Evidence today | If false | Smallest test | Owner | By when | Result |
 |---|---|---|---|---|---|---|---|---|

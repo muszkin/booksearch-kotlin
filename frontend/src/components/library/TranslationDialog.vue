@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import type { TranslationEstimateResponse } from '@/api/generated'
+import type { TranslationEstimateResponse, TranslationOptions } from '@/api/generated'
+import TranslationOptionsForm from './TranslationOptionsForm.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
 
@@ -10,14 +11,18 @@ interface Props {
   starting?: boolean
   error?: string | null
   title?: string
+  sourceId?: number
+  author?: string
 }
 const props = withDefaults(defineProps<Props>(), { loading: false, starting: false, error: null, title: '' })
-const emit = defineEmits<{ start: []; close: []; retry: [] }>()
+const emit = defineEmits<{ start: [options: TranslationOptions]; close: []; retry: []; estimateModel: [model?: string] }>()
+const options = ref<TranslationOptions>({ autoFallback: true, referenceChapters: 3 })
 const confirmed = ref(false)
+const contextReady = ref(true)
 const heading = ref<HTMLElement | null>(null)
 const dialog = ref<HTMLElement | null>(null)
 const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-const canStart = computed(() => !!props.estimate && confirmed.value && !props.loading && !props.starting && !props.error)
+const canStart = computed(() => !!props.estimate && confirmed.value && contextReady.value && !props.loading && !props.starting && !props.error)
 const duration = computed(() => props.estimate?.indicativeDuration === 'minutes_to_hours' ? 'minutes to hours (indicative)' : props.estimate?.indicativeDuration)
 
 onMounted(() => heading.value?.focus())
@@ -70,9 +75,10 @@ function handleKeydown(event: KeyboardEvent) {
       </div>
       <AlertMessage v-if="error" variant="error" :message="error" class="mt-4" />
       <BaseButton v-if="error" variant="secondary" class="mt-2" :disabled="loading || starting" @click="emit('retry')">Retry estimate</BaseButton>
+      <TranslationOptionsForm v-if="sourceId" v-model="options" :source-id="sourceId" :author="author" :disabled="starting" @ready="contextReady = $event" @model-change="emit('estimateModel', $event)" />
       <div id="translation-notice" lang="pl" class="mt-4 space-y-2 text-sm text-zinc-200">
         <p>Treść EPUB-a oraz wybrany glosariusz i fragmenty kontekstu zostaną wysłane do OpenRouter w celu tłumaczenia</p>
-        <p>W tej wersji nie wybrano materiałów kontekstowych.</p>
+        <p>Wysyłane są wyłącznie wybrane referencje, glosariusz i uwagi. Pobranie referencji nie wysyła jej na czytnik.</p>
       </div>
       <label for="external-processing-confirmation" class="mt-4 flex min-h-[44px] cursor-pointer items-center gap-3 text-sm text-zinc-200">
         <input
@@ -83,7 +89,7 @@ function handleKeydown(event: KeyboardEvent) {
         I confirm sending this EPUB to OpenRouter for translation.
       </label>
       <div class="mt-5 flex flex-wrap gap-3">
-        <BaseButton data-testid="translation-start-btn" :disabled="!canStart" :loading="starting" @click="canStart && emit('start')">Start translation</BaseButton>
+        <BaseButton data-testid="translation-start-btn" :disabled="!canStart" :loading="starting" @click="canStart && emit('start', options)">Start translation</BaseButton>
         <BaseButton data-testid="translation-close-btn" variant="secondary" :disabled="starting" @click="emit('close')">Close</BaseButton>
       </div>
     </section>

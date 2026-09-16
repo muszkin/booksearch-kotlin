@@ -75,9 +75,9 @@ class OpenRouterClient(
         }
 
         val completion = decode<OpenRouterCompletionResponse>(response.bodyAsText())
-        val content = completion.choices.firstOrNull()?.message?.content?.takeIf { it.isNotBlank() }
-            ?: throw OpenRouterException("OpenRouter completion response did not contain text")
-        return OpenRouterCompletion(content, completion.usage?.promptTokens ?: 0, completion.usage?.completionTokens ?: 0)
+        val choice = completion.choices.firstOrNull()
+        return OpenRouterCompletion(choice?.message?.content.orEmpty(), completion.usage?.promptTokens ?: 0,
+            completion.usage?.completionTokens ?: 0, completion.model, choice?.finishReason)
     }
 
     fun close() {
@@ -170,17 +170,17 @@ class OpenRouterClient(
     private data class OpenRouterMessage(val role: String = "user", val content: String)
 
     @Serializable
-    private data class OpenRouterCompletionResponse(val choices: List<OpenRouterChoice> = emptyList(), val usage: OpenRouterUsage? = null)
+    private data class OpenRouterCompletionResponse(val choices: List<OpenRouterChoice> = emptyList(), val usage: OpenRouterUsage? = null, val model: String? = null)
 
     @Serializable
     private data class OpenRouterUsage(@SerialName("prompt_tokens") val promptTokens: Int = 0, @SerialName("completion_tokens") val completionTokens: Int = 0)
 
-    private fun responseError(status: Int) = OpenRouterException("OpenRouter request failed with status $status", retryable = status == 429 || status in 500..599)
+    private fun responseError(status: Int) = OpenRouterException("OpenRouter HTTP $status", retryable = status == 429 || status in 500..599, code = "http_$status")
 
     private fun isUsable(answer: String, minLength: Int): Boolean = answer.length >= minLength && !answer.equals(UNKNOWN_MARKER, true) && HEDGING_MARKERS.none { answer.contains(it, true) }
 
     @Serializable
-    private data class OpenRouterChoice(val message: OpenRouterMessage? = null)
+    private data class OpenRouterChoice(val message: OpenRouterMessage? = null, @SerialName("finish_reason") val finishReason: String? = null)
 
     companion object {
         const val UNKNOWN_MARKER = "UNKNOWN"
@@ -191,7 +191,7 @@ class OpenRouterClient(
 
 data class OpenRouterModel(val id: String, val name: String)
 
-data class OpenRouterCompletion(val content: String, val inputTokens: Int = 0, val outputTokens: Int = 0)
+data class OpenRouterCompletion(val content: String, val inputTokens: Int = 0, val outputTokens: Int = 0, val model: String? = null, val finishReason: String? = null)
 
 class OpenRouterException(message: String, val retryable: Boolean = false, val code: String = "translation_request_failed") : RuntimeException(message)
 

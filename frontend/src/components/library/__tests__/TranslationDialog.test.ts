@@ -29,7 +29,7 @@ describe('TranslationDialog', () => {
   it('shows the exact notice, estimate, selected model, duration and free limit warning', () => {
     const wrapper = render()
     expect(wrapper.text()).toContain('Treść EPUB-a oraz wybrany glosariusz i fragmenty kontekstu zostaną wysłane do OpenRouter w celu tłumaczenia')
-    expect(wrapper.text()).toContain('W tej wersji nie wybrano materiałów kontekstowych.')
+    expect(wrapper.text()).toContain('Wysyłane są wyłącznie wybrane referencje, glosariusz i uwagi.')
     expect(wrapper.text()).toContain('12')
     expect(wrapper.text()).toContain('45000')
     expect(wrapper.text()).toContain('provider/free')

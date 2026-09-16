@@ -43,8 +43,20 @@ class TranslationJobRepository(private val dsl: DSLContext) {
             .orderBy(TRANSLATION_JOBS.CREATED_AT.desc(), TRANSLATION_JOBS.ID.desc())
             .fetch()
 
+    fun findVisibleByUserId(userId: Int): List<TranslationJobsRecord> =
+        (findActiveByUserId(userId) + dsl.selectFrom(TRANSLATION_JOBS)
+            .where(TRANSLATION_JOBS.USER_ID.eq(userId))
+            .and(TRANSLATION_JOBS.STATUS.eq(STATUS_COMPLETED))
+            .orderBy(TRANSLATION_JOBS.CREATED_AT.desc(), TRANSLATION_JOBS.ID.desc())
+            .limit(100)
+            .fetch()).sortedWith(compareByDescending<TranslationJobsRecord> { it.createdAt }.thenByDescending { it.id })
+
     fun markRunning(id: String) {
         updateStatus(id, STATUS_RUNNING)
+    }
+
+    fun setModel(id: String, modelId: String) {
+        dsl.update(TRANSLATION_JOBS).set(TRANSLATION_JOBS.MODEL_ID, modelId).where(TRANSLATION_JOBS.ID.eq(id)).execute()
     }
 
     fun queue(id: String) {

@@ -91,14 +91,14 @@ class TranslationRoutesTest {
     }
 
     @Test fun `all translation routes require JWT`() = app {
-        listOf("/api/translation/models", "/api/translation/$sourceId/estimate", "/api/translation/jobs", "/api/translation/jobs/id", "/api/admin/translation/config")
+        listOf("/api/translation/models", "/api/translation/$sourceId/estimate", "/api/translation/$sourceId/references", "/api/translation/jobs/id/details", "/api/translation/jobs/id/chapters/0/export", "/api/translation/jobs", "/api/translation/jobs/id", "/api/admin/translation/config")
             .forEach { assertEquals(HttpStatusCode.Unauthorized, client.get(it).status) }
-        listOf("/api/translation/$sourceId", "/api/translation/jobs/id/resume", "/api/translation/jobs/id/cancel")
+        listOf("/api/translation/$sourceId", "/api/translation/$sourceId/context-preview", "/api/translation/$sourceId/references/md5/download", "/api/translation/jobs/id/resume", "/api/translation/jobs/id/cancel")
             .forEach { assertEquals(HttpStatusCode.Unauthorized, client.post(it).status) }
         assertEquals(HttpStatusCode.Unauthorized, client.put("/api/admin/translation/config").status)
     }
 
-    @Test fun `discovers only owned active and paused jobs without a known UUID`() = app {
+    @Test fun `discovers owned active paused and completed jobs for chapter export after reload`() = app {
         val paused = jobs.create(owner, sourceId, "free")
         jobs.markPaused(paused, "server_restart")
         val running = jobs.create(owner, sourceId, "free")
@@ -113,7 +113,7 @@ class TranslationRoutesTest {
         val response = client.get("/api/translation/jobs") { bearerAuth(token()) }
         assertEquals(HttpStatusCode.OK, response.status)
         val found = Json.parseToJsonElement(response.bodyAsText()).jsonArray
-        assertEquals(setOf(paused, running, queued), found.map { it.jsonObject["jobId"]!!.jsonPrimitive.content }.toSet())
+        assertEquals(setOf(paused, running, queued, completed), found.map { it.jsonObject["jobId"]!!.jsonPrimitive.content }.toSet())
         assertTrue(found.single { it.jsonObject["jobId"]!!.jsonPrimitive.content == paused }.jsonObject["resumable"]!!.jsonPrimitive.boolean)
         listOf("workspacePath", "sourceFilePath", "sourceBookMd5", "apiKey").forEach { assertFalse(response.bodyAsText().contains(it)) }
         val otherResponse = client.get("/api/translation/jobs") { bearerAuth(token(other)) }
@@ -125,6 +125,38 @@ class TranslationRoutesTest {
         listOf("""{"externalProcessingConfirmed":false}""", "{}", """{"externalProcessingConfirmed":"true"}""", "{")
             .forEach { assertEquals(HttpStatusCode.UnprocessableEntity, start(it).status) }
         assertNull(jobs.findActiveBySourceLibraryEntryId(owner, sourceId))
+    }
+
+    @Test fun `context preview is owner scoped and validates sampling bounds`() = app {
+        val path = "/api/translation/$sourceId/context-preview"
+        assertEquals(HttpStatusCode.OK, client.post(path) { bearerAuth(token()); contentType(ContentType.Application.Json); setBody("{}") }.status)
+        assertEquals(HttpStatusCode.NotFound, client.post(path) { bearerAuth(token(other)); contentType(ContentType.Application.Json); setBody("{}") }.status)
+        assertEquals(HttpStatusCode.UnprocessableEntity, client.post(path) { bearerAuth(token()); contentType(ContentType.Application.Json); setBody("""{"referenceChapters":6}""") }.status)
+    }
+
+    @Test fun `diagnostics and chapter export are owner scoped and preserve partial progress`() = app {
+        coEvery { openRouter.translate(any(), any()) } answers {
+            if (!secondArg<String>().contains("Hello")) throw OpenRouterException("Do not expose provider content", code = "http_400")
+            OpenRouterCompletion("""["Cześć ","świecie","!"]""", 0, 0, "actual-free", "stop")
+        }
+        val response = start("""{"externalProcessingConfirmed":true,"options":{"autoFallback":false}}""")
+        val id = Json.parseToJsonElement(response.bodyAsText()).jsonObject["jobId"]!!.jsonPrimitive.content
+        val details = client.get("/api/translation/jobs/$id/details") { bearerAuth(token()) }
+        assertEquals(HttpStatusCode.OK, details.status)
+        val attempts = Json.parseToJsonElement(details.bodyAsText()).jsonObject["attempts"]!!.jsonArray
+        val successful = attempts.first().jsonObject
+        assertEquals("actual-free", successful["actualModel"]!!.jsonPrimitive.content)
+        assertEquals(0, successful["inputTokens"]!!.jsonPrimitive.int)
+        assertEquals("completed", successful["status"]!!.jsonPrimitive.content)
+        assertFalse(details.bodyAsText().contains("Do not expose"))
+        val text = client.get("/api/translation/jobs/$id/chapters/0/export?format=md") { bearerAuth(token()) }
+        assertEquals(HttpStatusCode.OK, text.status)
+        assertTrue(text.bodyAsText().contains("Cześć świecie!"))
+        assertEquals("attachment; filename=chapter-1.md", text.headers[HttpHeaders.ContentDisposition])
+        listOf("details", "chapters/0/export").forEach { suffix ->
+            assertEquals(HttpStatusCode.NotFound, client.get("/api/translation/jobs/$id/$suffix") { bearerAuth(token(other)) }.status)
+        }
+        assertEquals(HttpStatusCode.UnprocessableEntity, client.get("/api/translation/jobs/$id/chapters/0/export?format=html") { bearerAuth(token()) }.status)
     }
 
     @Test fun `estimate start duplicate and status preserve lifecycle contract`() = app {

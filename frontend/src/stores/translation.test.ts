@@ -29,6 +29,26 @@ afterEach(() => {
 })
 
 describe('translation store', () => {
+  it('selects the newest completed translation after discovery', async () => {
+    vi.mocked(TranslationService.listTranslationJobs).mockResolvedValue([
+      { ...job, jobId: 'newest', status: TranslationJobState.COMPLETED },
+      { ...job, jobId: 'oldest', status: TranslationJobState.COMPLETED },
+    ])
+    const store = useTranslationStore()
+    await store.restore()
+    expect(store.jobForLibrary(1)?.jobId).toBe('newest')
+  })
+
+  it('shows the server validation reason when resume context is rejected', async () => {
+    vi.mocked(TranslationService.resumeTranslation).mockRejectedValue(new ApiError(
+      { method: 'POST', url: '/resume' },
+      { url: '/resume', ok: false, status: 422, statusText: 'Invalid', body: { message: 'Reference EPUB must declare Polish language' } }, 'Invalid',
+    ))
+    const store = useTranslationStore()
+    store.jobs.set(job.jobId, { ...job, status: TranslationJobState.PAUSED, resumable: true })
+    await store.resume(job.jobId)
+    expect(store.jobErrors.get(job.jobId)).toContain('Reference EPUB must declare Polish language')
+  })
   it('rediscovers a job created in another browser when start races with discovery', async () => {
     const store = useTranslationStore()
     await store.restore()

@@ -1139,6 +1139,11 @@ paths:
           schema:
             type: integer
             minimum: 1
+        - name: modelId
+          in: query
+          required: false
+          description: Explicit free model instead of the administrator default
+          schema: { type: string }
       responses:
         '200':
           description: Successful response
@@ -1217,17 +1222,124 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/translation/{libraryId}/context-preview:
+    post:
+      operationId: previewTranslationContext
+      tags: [Translation]
+      summary: Preview stable reference samples before external processing
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TranslationOptions' }
+      responses:
+        '200':
+          description: Options with server-generated referenceText; nothing sent to a model
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TranslationOptions' }
+        '422':
+          description: Invalid reference context
+
+  /api/translation/{libraryId}/references/{md5}/download:
+    post:
+      operationId: downloadTranslationReference
+      tags: [Translation]
+      summary: Download an indexed Polish EPUB by the source author without device delivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: libraryId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: md5
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '202':
+          description: Download queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadStartedResponse'
+        '404':
+          description: Source not owned or reference not indexed
+        '422':
+          description: Reference is not a Polish EPUB by the same author
+
+  /api/translation/{libraryId}/references:
+    get:
+      operationId: listTranslationReferences
+      tags: [translation]
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: libraryId, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Owned Polish EPUBs by the same author
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/LibraryBook'}
+        '404': {description: Source not owned or not found}
+        '401': {description: Authentication required}
+
+  /api/translation/jobs/{jobId}/details:
+    get:
+      operationId: getTranslationDetails
+      tags: [translation]
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: jobId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Owner-only persisted context, chapter progress and attempt history
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TranslationDetails'}
+        '404': {description: Job not owned or not found}
+        '401': {description: Authentication required}
+
+  /api/translation/jobs/{jobId}/chapters/{index}/export:
+    get:
+      operationId: exportTranslationChapter
+      tags: [translation]
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: jobId, in: path, required: true, schema: {type: string}}
+        - {name: index, in: path, required: true, schema: {type: integer, minimum: 0}}
+        - {name: format, in: query, schema: {type: string, enum: [txt, md], default: txt}}
+      responses:
+        '200':
+          description: Translated chapter; incomplete chapters are clearly marked
+          content:
+            text/plain:
+              schema: {type: string}
+        '422': {description: No translated text or invalid format}
+        '404': {description: Chapter or owned job not found}
+        '401': {description: Authentication required}
+
   /api/translation/jobs:
     get:
       operationId: listTranslationJobs
       tags: [translation]
-      summary: Rediscover owned queued, running, and paused translations
-      description: Returns active and resumable jobs for the authenticated user, including jobs started in another browser session. Terminal jobs are omitted.
+      summary: Rediscover owned active, paused, and completed translations
+      description: Returns active and resumable jobs plus completed translations so chapter exports remain accessible after reloading. Failed and cancelled jobs are omitted.
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Owned active or paused jobs, newest first
+          description: Owned active, paused, or completed jobs, newest first
           content:
             application/json:
               schema:
@@ -1277,6 +1389,11 @@ paths:
 
   /api/translation/jobs/{jobId}/resume:
     post:
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TranslationOptions'}
       operationId: resumeTranslation
       tags: [translation]
       summary: Resume a paused translation after revalidating its source and model
@@ -1451,9 +1568,71 @@ components:
       type: object
       required: [externalProcessingConfirmed]
       properties:
+        options:
+          $ref: '#/components/schemas/TranslationOptions'
         externalProcessingConfirmed:
           type: boolean
           description: Must be explicitly true to permit sending EPUB text to OpenRouter.
+
+    TranslationOptions:
+      type: object
+      properties:
+        modelId: {type: string, nullable: true}
+        autoFallback: {type: boolean, default: true}
+        fallbackModelIds:
+          type: array
+          maxItems: 10
+          items: {type: string}
+        referenceLibraryIds:
+          type: array
+          maxItems: 5
+          items: {type: integer}
+        referenceChapters: {type: integer, minimum: 1, maximum: 5, default: 3}
+        glossary: {type: string, maxLength: 12000}
+        notes: {type: string, maxLength: 4000}
+        referenceText: {type: string, readOnly: true, description: Persisted sampled excerpts; ignored in requests}
+
+    TranslationAttempt:
+      type: object
+      required: [id, startedAt, chapterIndex, segmentIndex, requestedModel, status, inputTokens, outputTokens, itemCount]
+      properties:
+        id: {type: string}
+        startedAt: {type: string}
+        chapterIndex: {type: integer}
+        segmentIndex: {type: integer}
+        requestedModel: {type: string}
+        actualModel: {type: string, nullable: true}
+        status: {type: string}
+        errorCode: {type: string, nullable: true}
+        message: {type: string, nullable: true}
+        inputTokens: {type: integer}
+        outputTokens: {type: integer}
+        itemCount: {type: integer}
+        finishReason: {type: string, nullable: true}
+
+    TranslationChapterDetail:
+      type: object
+      required: [index, href, status, attempts, translatedSegments, totalSegments]
+      properties:
+        index: {type: integer}
+        href: {type: string}
+        status: {type: string}
+        attempts: {type: integer}
+        error: {type: string, nullable: true}
+        translatedSegments: {type: integer}
+        totalSegments: {type: integer}
+
+    TranslationDetails:
+      type: object
+      required: [options, chapters, attempts]
+      properties:
+        options: {$ref: '#/components/schemas/TranslationOptions'}
+        chapters:
+          type: array
+          items: {$ref: '#/components/schemas/TranslationChapterDetail'}
+        attempts:
+          type: array
+          items: {$ref: '#/components/schemas/TranslationAttempt'}
 
     TranslationJobState:
       type: string

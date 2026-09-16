@@ -7,7 +7,7 @@ import LibraryView from '../LibraryView.vue'
 import { useTranslationStore } from '@/stores/translation'
 
 vi.mock('@/components/library/LibraryCoverImage.vue', () => ({ default: { template: '<div />' } }))
-const book = { id: 1, bookMd5: 'md5', format: 'epub', filePath: '/book.epub', title: 'English EPUB', author: 'Author', addedAt: '2026-09-12' } as LibraryBook
+const book = { id: 1, bookMd5: 'md5', format: 'epub', filePath: '/book.epub', title: 'English EPUB', author: 'Author', description: '', addedAt: '2026-09-12' } as LibraryBook
 let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -17,6 +17,8 @@ beforeEach(() => {
   vi.spyOn(TranslationService, 'estimateTranslation').mockResolvedValue({ totalChapters: 2, estimatedInputTokens: 200, modelId: 'free/model', indicativeDuration: 'minutes_to_hours', limitWarning: 'Daily limits apply.' })
   vi.spyOn(TranslationService, 'startTranslation').mockResolvedValue({ jobId: 'job-id', status: TranslationJobState.QUEUED })
   vi.spyOn(TranslationService, 'listTranslationJobs').mockResolvedValue([])
+  vi.spyOn(TranslationService, 'listTranslationModels').mockResolvedValue([])
+  vi.spyOn(TranslationService, 'listTranslationReferences').mockResolvedValue([])
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -53,7 +55,7 @@ describe('LibraryView translation integration', () => {
     await wrapper.get('[data-testid="external-processing-confirmation"]').setValue(true)
     await wrapper.get('[data-testid="translation-start-btn"]').trigger('click')
     await flushPromises()
-    expect(TranslationService.startTranslation).toHaveBeenCalledExactlyOnceWith(1, { externalProcessingConfirmed: true })
+    expect(TranslationService.startTranslation).toHaveBeenCalledExactlyOnceWith(1, { externalProcessingConfirmed: true, options: { autoFallback: true, referenceChapters: 3 } })
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.get('[aria-label="Translation progress"]').text()).toContain('0 / 2')
     expect(wrapper.get('[data-testid="translate-btn"]').attributes('disabled')).toBeDefined()

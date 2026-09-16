@@ -57,7 +57,7 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             .fetchOne()!!
     }
 
-    fun findByUserId(userId: Int, page: Int, pageSize: Int): List<LibraryEntryWithBook> {
+    fun findByUserId(userId: Int, page: Int, pageSize: Int, referenceAuthor: String? = null): List<LibraryEntryWithBook> {
         val offset = (page - 1) * pageSize
 
         return dsl.select(
@@ -81,6 +81,10 @@ class UserLibraryRepository(private val dsl: DSLContext) {
             .from(USER_LIBRARY)
             .join(BOOKS).on(USER_LIBRARY.BOOK_MD5.eq(BOOKS.MD5))
             .where(USER_LIBRARY.USER_ID.eq(userId))
+            .and(if (referenceAuthor == null) org.jooq.impl.DSL.noCondition() else
+                org.jooq.impl.DSL.lower(org.jooq.impl.DSL.trim(BOOKS.AUTHOR)).eq(referenceAuthor.lowercase())
+                    .and(org.jooq.impl.DSL.lower(USER_LIBRARY.FORMAT).eq("epub"))
+                    .and(USER_LIBRARY.FILE_PATH.isNotNull))
             .orderBy(USER_LIBRARY.ADDED_AT.desc())
             .limit(pageSize)
             .offset(offset)

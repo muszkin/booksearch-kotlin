@@ -397,7 +397,7 @@ private fun Application.configureRouting(
         healthRoutes()
         authRoutes(authService, systemConfigRepository)
         adminRoutes(authService, systemConfigRepository, openRouterClient)
-        translationRoutes(translationService, openRouterClient)
+        translationRoutes(translationService, openRouterClient, downloadService)
         mirrorRoutes(mirrorService)
         searchRoutes(searchService)
         bookRoutes(bookDescriptionService)
