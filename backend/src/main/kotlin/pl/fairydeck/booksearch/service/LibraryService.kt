@@ -292,4 +292,6 @@ data class LibraryFileInfo(
 
 data class TranslationSource(val bookMd5: String, val file: File)
 
-internal fun isEnglish(language: String): Boolean = language.trim().lowercase().let { it in setOf("en", "eng", "english") || it.startsWith("en-") }
+internal fun isEnglish(language: String): Boolean = language.trim().lowercase().let {
+    it in setOf("en", "eng", "english") || it.startsWith("en-") || it.startsWith("english ")
+}

@@ -52,6 +52,12 @@ class TranslationServiceTest {
         withTimeout(5000) { while (service.status(owner, id).status in listOf("queued", "running")) yield() }
     }
 
+    @Test
+    fun `recognizes catalog English language labels`() {
+        assertTrue(isEnglish("English [en]"))
+        assertFalse(isEnglish("Englishish"))
+    }
+
     @Test fun `third transient failure pauses and resume publishes separate Polish entry`() = runBlocking {
         var failures = true
         coEvery { client.translate(any(), any()) } answers {
