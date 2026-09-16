@@ -13,6 +13,17 @@ const job: TranslationStatusResponse = {
 describe('TranslationProgress', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+  it.each([
+    ['request_timeout', 'nie odpowiedział w wyznaczonym czasie'],
+    ['connection_failed', 'Nie udało się połączyć z OpenRouter'],
+    ['invalid_provider_response', 'nieprawidłową strukturę'],
+  ])('explains %s without exposing upstream payloads', (error, explanation) => {
+    const wrapper = mount(TranslationProgress, { props: { job: { ...job, status: TranslationJobState.PAUSED, resumable: true, error } } })
+    expect(wrapper.text()).toContain(explanation)
+    expect(wrapper.find('[data-testid="translation-resume-btn"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('downloads an available chapter and exposes actual model diagnostics', async () => {
     vi.spyOn(TranslationService, 'getTranslationDetails').mockResolvedValue({ options: {}, chapters: [
       { index: 0, href: 'chapter.xhtml', status: 'completed', attempts: 2, translatedSegments: 1, totalSegments: 1 },

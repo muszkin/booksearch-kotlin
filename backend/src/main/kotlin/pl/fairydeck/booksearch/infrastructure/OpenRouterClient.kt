@@ -18,6 +18,8 @@ import kotlinx.serialization.json.Json
 import java.math.BigDecimal
 import kotlinx.coroutines.CancellationException
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.network.sockets.ConnectTimeoutException
 import org.slf4j.LoggerFactory
 
 class OpenRouterClient(
@@ -88,15 +90,19 @@ class OpenRouterClient(
         try {
             httpClient.block()
         } catch (e: CancellationException) { throw e
-        } catch (_: Exception) {
-            throw OpenRouterException("OpenRouter request failed", retryable = true)
+        } catch (e: Exception) {
+            val timeout = e is HttpRequestTimeoutException || e is java.net.SocketTimeoutException || e is ConnectTimeoutException
+            throw OpenRouterException(
+                if (timeout) "OpenRouter request timed out" else "Connection to OpenRouter failed",
+                retryable = true, code = if (timeout) "request_timeout" else "connection_failed"
+            )
         }
 
     private inline fun <reified T> decode(body: String): T =
         try {
             json.decodeFromString(body)
         } catch (_: Exception) {
-            throw OpenRouterException("OpenRouter returned an invalid response")
+            throw OpenRouterException("OpenRouter returned an invalid response", code = "invalid_provider_response")
         }
 
     private suspend fun fetchModels(): List<OpenRouterModelResponse> {

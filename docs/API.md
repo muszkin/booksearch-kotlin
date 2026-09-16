@@ -135,6 +135,9 @@ Attempt diagnostics include timestamp, chapter/segment index, requested and
 actual model, item count, token usage, finish reason and safe error detail.
 Codes distinguish `invalid_json`, `item_count_mismatch`, `empty_translation`,
 `empty_response`, `invalid_characters`, `output_truncated` and `http_<status>`.
+Transport diagnostics distinguish `request_timeout`, `connection_failed` and
+`invalid_provider_response` (an invalid API envelope, not invalid translation JSON).
+Messages do not include raw provider payloads or exception details.
 Logs do not contain source text, raw model replies or credentials. Historical
 attempts from before this release cannot be reconstructed. Existing workspaces
 without options/log files remain resumable and exportable. No database migration
