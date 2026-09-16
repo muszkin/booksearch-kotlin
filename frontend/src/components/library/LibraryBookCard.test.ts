@@ -113,7 +113,7 @@ describe('LibraryBookCard', () => {
     expect(wrapper.find('[data-testid="send-pocketbook-btn"]').exists()).toBe(true)
   })
 
-  it('disables file actions and explains that download is still in progress', () => {
+  it('keeps delivery available and explains that download is still in progress', () => {
     const wrapper = mount(LibraryBookCard, {
       props: {
         ...defaultProps,
@@ -128,9 +128,9 @@ describe('LibraryBookCard', () => {
       },
     })
 
-    expect(wrapper.find('[data-testid="send-kindle-btn"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('[data-testid="convert-mobi-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="send-kindle-btn"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="convert-mobi-btn"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="download-file-btn"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
@@ -138,7 +138,7 @@ describe('LibraryBookCard', () => {
     )
   })
 
-  it('keeps a failed download visible and offers retry without enabling delivery', () => {
+  it('keeps a failed download visible and offers retry without blocking delivery', () => {
     const wrapper = mount(LibraryBookCard, {
       props: {
         ...defaultProps,
@@ -156,7 +156,7 @@ describe('LibraryBookCard', () => {
 
     expect(wrapper.text()).toContain('Download challenge timed out')
     expect(wrapper.find('[data-testid="start-download-btn"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="send-pocketbook-btn"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="download-pending-note"]').text()).toContain(
       'Download failed',
     )

@@ -1,12 +1,17 @@
 import { onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, TranslationJobState, TranslationService } from '@/api/generated'
-import type { TranslationEstimateResponse, TranslationStatusResponse } from '@/api/generated'
+import type { TranslationEstimateResponse, TranslationStatusResponse, TranslationOptions } from '@/api/generated'
 import { useLibraryStore } from './library'
 import { useAuthStore } from './auth'
 
 const POLL_INTERVAL_MS = 5000
 const ACTIVE_STATES = new Set([TranslationJobState.QUEUED, TranslationJobState.RUNNING])
+
+function validationMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiError && error.status === 422 && typeof error.body?.message === 'string'
+    ? `${fallback} ${error.body.message}` : fallback
+}
 
 export const useTranslationStore = defineStore('translation', () => {
   const library = useLibraryStore()
@@ -76,7 +81,7 @@ export const useTranslationStore = defineStore('translation', () => {
     try {
       const found = await TranslationService.listTranslationJobs()
       if (currentGeneration !== generation || request !== restoreRequest) return
-      for (const job of found) {
+      for (const job of [...found].reverse()) {
         // A resume, cancellation or status response may have completed during discovery.
         if (jobs.value.get(job.jobId) !== previousJobs.get(job.jobId) || busyJobs.value.has(job.jobId)) continue
         jobs.value.set(job.jobId, job)
@@ -100,14 +105,14 @@ export const useTranslationStore = defineStore('translation', () => {
     return matches.find((job) => ACTIVE_STATES.has(job.status) || job.status === TranslationJobState.PAUSED) ?? matches[0]
   }
 
-  async function estimate(libraryId: number) {
+  async function estimate(libraryId: number, modelId?: string) {
     loading.value = true
     error.value = null
     estimates.value.delete(libraryId)
     const currentGeneration = generation
     const request = ++estimateRequest
     try {
-      const result = await TranslationService.estimateTranslation(libraryId)
+      const result = modelId ? await TranslationService.estimateTranslation(libraryId, modelId) : await TranslationService.estimateTranslation(libraryId)
       if (currentGeneration !== generation || request !== estimateRequest) return null
       estimates.value.set(libraryId, result)
       return result
@@ -169,7 +174,7 @@ export const useTranslationStore = defineStore('translation', () => {
     if (currentGeneration === generation && job && ACTIVE_STATES.has(job.status)) poll(jobId)
   }
 
-  async function start(libraryId: number) {
+  async function start(libraryId: number, options?: TranslationOptions) {
     const estimate = estimates.value.get(libraryId)
     const existing = jobForLibrary(libraryId)
     if (starting.value || restoring.value || discoveryError.value || !estimate ||
@@ -178,7 +183,7 @@ export const useTranslationStore = defineStore('translation', () => {
     error.value = null
     const currentGeneration = generation
     try {
-      const result = await TranslationService.startTranslation(libraryId, { externalProcessingConfirmed: true })
+      const result = await TranslationService.startTranslation(libraryId, { externalProcessingConfirmed: true, ...(options ? { options } : {}) })
       if (currentGeneration !== generation) return false
       jobs.value.set(result.jobId, {
         ...result, sourceLibraryEntryId: libraryId, modelId: estimate.modelId,
@@ -199,7 +204,7 @@ export const useTranslationStore = defineStore('translation', () => {
         }
         error.value = err instanceof ApiError && err.status === 409
           ? 'An active translation already exists for this EPUB.'
-          : 'Could not start translation. Check that this EPUB and the configured free model are still available.'
+          : validationMessage(err, 'Could not start translation. Check that this EPUB and the configured free model are still available.')
       }
       return false
     } finally {
@@ -207,7 +212,7 @@ export const useTranslationStore = defineStore('translation', () => {
     }
   }
 
-  async function resume(jobId: string) {
+  async function resume(jobId: string, options?: TranslationOptions) {
     const job = jobs.value.get(jobId)
     if (!job?.resumable || busyJobs.value.has(jobId)) return
     busyJobs.value.add(jobId)
@@ -215,13 +220,13 @@ export const useTranslationStore = defineStore('translation', () => {
     jobErrors.value.delete(jobId)
     const currentGeneration = generation
     try {
-      const result = await TranslationService.resumeTranslation(jobId)
+      const result = options ? await TranslationService.resumeTranslation(jobId, options) : await TranslationService.resumeTranslation(jobId)
       if (currentGeneration !== generation) return
       jobs.value.set(jobId, { ...job, status: result.status, error: null, resumable: false })
       saveRecovery()
       poll(jobId)
-    } catch {
-      if (currentGeneration === generation) jobErrors.value.set(jobId, 'Could not resume. The source and original model must still be available and free.')
+    } catch (err) {
+      if (currentGeneration === generation) jobErrors.value.set(jobId, validationMessage(err, 'Could not resume. Check the source, selected free model and reference context.'))
     } finally {
       if (currentGeneration === generation) busyJobs.value.delete(jobId)
     }

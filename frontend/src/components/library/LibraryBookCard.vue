@@ -127,12 +127,14 @@ const formattedDate = computed(() => {
         </div>
 
         <div v-if="isDownloadActive && downloadStatus" class="mt-3">
+          <p data-testid="download-pending-note" class="text-sm text-zinc-400">This book is still downloading.</p>
           <DownloadProgressBar
             :status="downloadStatus.status"
             :progress="downloadStatus.progress"
             :error="downloadStatus.error ?? undefined"
           />
         </div>
+        <p v-if="downloadStatus?.status === 'failed'" data-testid="download-pending-note" class="mt-3 text-sm text-rose-300">Download failed: {{ downloadStatus.error }}</p>
 
         <p
           v-if="isConversionActive && conversionStatus"
@@ -143,14 +145,14 @@ const formattedDate = computed(() => {
       </div>
     </div>
 
-    <div v-if="showDescription" class="px-4 pb-4 text-sm text-zinc-300" :aria-busy="props.descriptionLoading === true">
+    <div v-if="showDescription" data-testid="description-body" class="px-4 pb-4 text-sm text-zinc-300" :aria-busy="props.descriptionLoading === true">
       <p v-if="!hasDescription && props.descriptionLoading" class="text-zinc-500">Looking for a description…</p>
       <p v-else-if="!hasDescription" class="text-zinc-500">No description available for this book.</p>
       <template v-else>
-        <p v-if="isGenerated" class="mb-1 text-xs text-amber-400">AI-generated summary — may be inaccurate</p>
+        <p v-if="isGenerated" data-testid="description-generated-label" class="mb-1 text-xs text-amber-400">AI-generated summary — may be inaccurate</p>
         <p class="whitespace-pre-line">{{ props.book.description }}</p>
       </template>
-      <button v-if="props.canRegenerate" type="button" class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200 disabled:opacity-50" :disabled="props.descriptionLoading" @click="emit('regenerate-description')">
+      <button v-if="props.canRegenerate" data-testid="description-regenerate" type="button" class="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200 disabled:opacity-50" :disabled="props.descriptionLoading" @click="emit('regenerate-description')">
         {{ hasDescription ? 'Wrong description? Regenerate with AI' : 'Generate one with AI' }}
       </button>
     </div>

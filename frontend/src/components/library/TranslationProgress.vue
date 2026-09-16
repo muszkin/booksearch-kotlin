@@ -1,27 +1,70 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { TranslationStatusResponse } from '@/api/generated'
+import { computed, ref, watch } from 'vue'
+import { TranslationService } from '@/api/generated'
+import type { TranslationStatusResponse, TranslationDetails, TranslationOptions } from '@/api/generated'
+import TranslationOptionsForm from './TranslationOptionsForm.vue'
 import BaseButton from '@/components/base/BaseButton.vue'
 import AlertMessage from '@/components/base/AlertMessage.vue'
 
-interface Props { job: TranslationStatusResponse; busy?: boolean; error?: string }
+interface Props { job: TranslationStatusResponse; busy?: boolean; error?: string; author?: string }
 const props = withDefaults(defineProps<Props>(), { busy: false, error: undefined })
-const emit = defineEmits<{ resume: []; cancel: []; retry: [] }>()
+const emit = defineEmits<{ resume: [options?: TranslationOptions]; cancel: []; retry: [] }>()
 const canResume = computed(() => props.job.resumable && ['paused', 'failed'].includes(props.job.status))
 const canCancel = computed(() => ['queued', 'paused'].includes(props.job.status))
+const details = ref<TranslationDetails | null>(null)
+const options = ref<TranslationOptions>({ autoFallback: true })
+const expanded = ref(false)
+const editing = ref(false)
+const contextReady = ref(true)
+const detailError = ref('')
+const loadingDetails = ref(false)
+const errors: Record<string, string> = {
+  invalid_translation: 'Model zwrócił odpowiedź, której nie można bezpiecznie wstawić do EPUB-a. Starsza próba nie ma szczegółowego dziennika.',
+  invalid_json: 'Odpowiedź modelu nie jest poprawną tablicą JSON.',
+  item_count_mismatch: 'Model zwrócił inną liczbę fragmentów tekstu niż oczekiwano.',
+  empty_translation: 'Model pozostawił pusty fragment tłumaczenia.',
+  empty_response: 'Model nie zwrócił tekstu tłumaczenia.',
+  output_truncated: 'Odpowiedź została ucięta przez limit wyjścia modelu.',
+  http_429: 'Dostawca ograniczył liczbę żądań. Spróbuj innego darmowego modelu lub wznów później.',
+  model_no_longer_free: 'Wybrany model nie jest obecnie darmowy lub dostępny.',
+  translation_request_failed: 'Żądanie do modelu nie powiodło się. Sprawdź historię prób i wybierz inny model przy wznowieniu.',
+  server_restart: 'Serwer został uruchomiony ponownie. Zapisane fragmenty są zachowane.',
+}
+const reason = computed(() => props.job.error ? errors[props.job.error] ?? `Błąd: ${props.job.error}. Sprawdź historię prób.` : '')
+async function loadDetails() {
+  if (loadingDetails.value) return
+  loadingDetails.value = true; detailError.value = ''
+  try {
+    const result = await TranslationService.getTranslationDetails(props.job.jobId)
+    details.value = result
+    if (!editing.value) options.value = { ...result.options, modelId: result.options.modelId ?? props.job.modelId }
+  } catch { detailError.value = 'Nie udało się odczytać szczegółów. Spróbuj ponownie.' }
+  finally { loadingDetails.value = false }
+}
+watch(() => [props.job.status, props.job.completedChapters], () => { if (expanded.value) void loadDetails() })
+function saveFile(text: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url)
+}
+async function download(index: number, format: 'txt' | 'md') {
+  try { saveFile(await TranslationService.exportTranslationChapter(props.job.jobId, index, format), `rozdzial-${index + 1}.${format}`) }
+  catch { detailError.value = 'Nie udało się pobrać tłumaczenia rozdziału.' }
+}
+async function editOptions() { await loadDetails(); if (details.value) { editing.value = true; expanded.value = true } }
+function resume() { emit('resume', editing.value ? options.value : undefined); editing.value = false }
 </script>
 
 <template>
   <section class="space-y-2 border-t border-zinc-700 p-4 text-sm text-zinc-300" aria-label="Translation progress">
     <div aria-live="polite" aria-atomic="true">
       <p>Translation: {{ job.status }} · {{ job.completedChapters }} / {{ job.totalChapters }} chapters</p>
-      <p v-if="job.error" class="mt-1 text-amber-200">Translation stopped: {{ job.error }}</p>
+      <p v-if="job.error" class="mt-1 text-amber-200">{{ reason }}</p>
       <p v-if="job.status === 'completed'" class="mt-1 text-emerald-300">
         Polish EPUB added as a separate library entry ({{ job.outputLibraryEntryId }}). Download or send it from its library card.
       </p>
     </div>
     <progress :value="job.completedChapters" :max="Math.max(job.totalChapters, 1)" class="h-2 w-full accent-violet-400" aria-label="Translated chapters" />
-    <details>
+    <details :open="expanded" @toggle="expanded = ($event.target as HTMLDetailsElement).open; expanded && loadDetails()">
       <summary class="min-h-[44px] cursor-pointer py-3 text-violet-300 focus-visible:outline-2 focus-visible:outline-violet-400">Translation details</summary>
       <dl class="grid grid-cols-2 gap-2 break-words">
         <dt>Job</dt><dd class="break-all">{{ job.jobId }}</dd>
@@ -30,10 +73,43 @@ const canCancel = computed(() => ['queued', 'paused'].includes(props.job.status)
         <dt>Output tokens used</dt><dd>{{ job.actualOutputTokens }}</dd>
         <template v-if="job.failedChapterIndex != null"><dt>Failed chapter</dt><dd>{{ job.failedChapterIndex + 1 }}</dd></template>
       </dl>
+      <button type="button" class="my-3 text-violet-300 underline" :disabled="loadingDetails" @click="loadDetails">Odśwież rozdziały i dziennik</button>
+      <p v-if="detailError" role="alert" class="text-rose-300">{{ detailError }}</p>
+      <template v-if="details">
+        <h3 class="my-2 font-semibold">Rozdziały i podgląd przekładu</h3>
+        <p class="text-zinc-400">Numeracja obejmuje pliki w kolejności EPUB-a, także strony tytułowe. Eksport częściowy jest wyraźnie oznaczony.</p>
+        <ol class="max-h-72 space-y-2 overflow-auto">
+          <li v-for="chapter in details.chapters" :key="chapter.index" class="rounded border border-zinc-700 p-2">
+            <p>{{ chapter.index + 1 }}. {{ chapter.href }} — {{ chapter.status }}</p>
+            <p>{{ chapter.translatedSegments }}/{{ chapter.totalSegments }} fragmentów · {{ chapter.attempts }} prób</p>
+            <div v-if="chapter.translatedSegments > 0" class="flex gap-4">
+              <button type="button" class="text-violet-300 underline" @click="download(chapter.index, 'txt')">Pobierz TXT</button>
+              <button type="button" class="text-violet-300 underline" @click="download(chapter.index, 'md')">Pobierz Markdown</button>
+            </div>
+          </li>
+        </ol>
+        <h3 class="my-3 font-semibold">Historia prób (ostatnie 300 żądań)</h3>
+        <p v-if="!details.attempts.length">Starsze próby nie zawierają szczegółowego dziennika. Będzie zapisywany od następnego wznowienia.</p>
+        <button type="button" class="mb-2 text-violet-300 underline" @click="saveFile(JSON.stringify(details.attempts, null, 2), 'translation-attempts.json')">Pobierz dziennik JSON</button>
+        <ol class="max-h-80 space-y-2 overflow-auto">
+          <li v-for="attempt in [...details.attempts].reverse()" :key="attempt.id" class="rounded border border-zinc-700 p-2">
+            <p>{{ attempt.startedAt }} · rozdział {{ attempt.chapterIndex + 1 }}, fragment {{ attempt.segmentIndex + 1 }} · {{ attempt.status }}</p>
+            <p class="break-all">{{ attempt.requestedModel }} → {{ attempt.actualModel ?? 'dostawca nie podał modelu' }}</p>
+            <p v-if="attempt.message" class="text-amber-200">{{ attempt.message }} ({{ attempt.errorCode }})</p>
+            <p>{{ attempt.itemCount }} elementów · tokeny {{ attempt.inputTokens }}/{{ attempt.outputTokens }} · zakończenie: {{ attempt.finishReason ?? 'brak danych' }}</p>
+          </li>
+        </ol>
+      </template>
     </details>
+    <div v-if="editing">
+      <p class="text-amber-200">Nowy model i kontekst dotyczą wyłącznie pozostałych fragmentów. Dotychczasowy postęp zostaje zachowany.</p>
+      <p>Wznowienie oznacza wysłanie pozostałego tekstu, glosariusza i wybranych fragmentów referencyjnych do OpenRouter.</p>
+      <TranslationOptionsForm v-model="options" :source-id="job.sourceLibraryEntryId" :author="author" :disabled="busy" @ready="contextReady = $event" />
+    </div>
     <AlertMessage v-if="error" variant="error" :message="error" />
     <div v-if="canResume || canCancel || error" class="flex flex-wrap gap-2">
-      <BaseButton v-if="canResume" data-testid="translation-resume-btn" :disabled="busy" @click="emit('resume')">Resume</BaseButton>
+      <BaseButton v-if="canResume" data-testid="translation-resume-btn" :disabled="busy || (editing && !contextReady)" @click="resume">Resume</BaseButton>
+      <BaseButton v-if="canResume" variant="secondary" :disabled="busy" @click="editOptions">Zmień model / kontekst</BaseButton>
       <BaseButton v-if="canCancel" data-testid="translation-cancel-btn" variant="secondary" :disabled="busy" @click="emit('cancel')">Cancel translation</BaseButton>
       <BaseButton v-if="error" variant="secondary" :disabled="busy" @click="emit('retry')">Refresh status</BaseButton>
     </div>

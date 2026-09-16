@@ -11,6 +11,30 @@ import java.util.zip.ZipOutputStream
 class EpubTranslationWorkspaceTest {
     @TempDir lateinit var dir: Path
 
+    @Test fun `diagnostics explain invalid output and accept a fenced JSON response`() {
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"))
+        assertEquals(listOf("Tekst"), workspace.validateResponse(1, "```json\n[\"Tekst\"]\n```"))
+        val count = assertThrows(TranslationWorkspaceException::class.java) { workspace.validateResponse(2, "[\"Tekst\"]") }
+        assertEquals("item_count_mismatch", count.code)
+        assertEquals("Expected 2 text items, received 1.", count.detail)
+        assertEquals("invalid_json", assertThrows(TranslationWorkspaceException::class.java) { workspace.validateResponse(1, "secret invalid prose") }.code)
+        assertEquals("empty_translation", assertThrows(TranslationWorkspaceException::class.java) { workspace.validateResponse(1, "[\"\"]") }.code)
+    }
+
+    @Test fun `exports translated inline text without original prose and marks partial chapters`() {
+        val workspace = EpubTranslationWorkspace(dir.resolve("jobs"), maxSegmentCharacters = 12)
+        val plan = workspace.create(translationFixture(dir.resolve("source.epub"), "<p>First block</p><p>Next block</p>"), "export")
+        workspace.replaceSegment(plan.segments.first(), "[\"Pierwszy akapit\"]")
+        val partial = workspace.exportChapter("export", 0, true)
+        assertTrue(partial.startsWith("# Rozdział 1 — tłumaczenie częściowe"))
+        assertTrue(partial.contains("Pierwszy akapit"))
+        assertFalse(partial.contains("Next block"))
+        workspace.replaceSegment(plan.segments[1], "[\"Drugi akapit\"]")
+        val complete = workspace.exportChapter("export", 0, false)
+        assertFalse(complete.contains("częściowe"))
+        assertTrue(complete.contains("Pierwszy akapit\n\nDrugi akapit"))
+    }
+
     @Test fun `rebuild preserves spine and non-text resources and escapes translated text`() {
         val source = translationFixture(dir.resolve("source.epub"))
         val original = source.readBytes()
@@ -123,7 +147,7 @@ private fun declareZipEntrySize(file: java.io.File, entryName: String, size: Int
     error("Missing fixture ZIP entry")
 }
 
-internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=\"accent\">world</em>!</p>", extraName: String? = null, extraResources: Map<String, String> = emptyMap()): java.io.File {
+internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=\"accent\">world</em>!</p>", extraName: String? = null, extraResources: Map<String, String> = emptyMap(), language: String = "en"): java.io.File {
     val entries = linkedMapOf(
         "mimetype" to "application/epub+zip",
         "META-INF/container.xml" to """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>""",
@@ -134,6 +158,7 @@ internal fun translationFixture(path: Path, first: String = "<p>Hello <em class=
         "OPS/style.css" to "p { color: red; }",
         "OPS/image.png" to "binary-image-fixture"
     )
+    entries["OPS/book.opf"] = entries.getValue("OPS/book.opf").replace("<dc:language>en</dc:language>", "<dc:language>$language</dc:language>")
     extraName?.let { entries[it] = "invalid" }
     entries.putAll(extraResources)
     ZipOutputStream(path.toFile().outputStream()).use { zip -> entries.forEach { (name, text) -> zip.putNextEntry(ZipEntry(name)); zip.write(text.toByteArray()); zip.closeEntry() } }

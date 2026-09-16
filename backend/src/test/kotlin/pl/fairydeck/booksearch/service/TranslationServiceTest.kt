@@ -52,10 +52,90 @@ class TranslationServiceTest {
         withTimeout(5000) { while (service.status(owner, id).status in listOf("queued", "running")) yield() }
     }
 
+    @Test fun `fallback records actual model and validation reason then completes without paid calls`() = runBlocking {
+        coEvery { client.listFreeTextModels() } returns listOf(OpenRouterModel("free", "Router"), OpenRouterModel("next-free", "Next"))
+        coEvery { client.translate("free", any()) } returns OpenRouterCompletion("[\"wrong count\"]", 5, 7, "resolved-model", "stop")
+        coEvery { client.translate("next-free", any()) } answers {
+            OpenRouterCompletion(if (secondArg<String>().contains("Hello")) """["Cześć ","świecie","!"]""" else """["Drugi"]""", 2, 3, "next-free", "stop")
+        }
+        val service = service(this)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
+        val details = service.details(owner, id)
+        assertTrue(details.attempts.any { it.errorCode == "item_count_mismatch" && it.actualModel == "resolved-model" })
+        assertTrue(details.attempts.any { it.requestedModel == "next-free" && it.status == "completed" })
+        assertTrue(service.exportChapter(owner, id, 0, "txt").contains("Cześć świecie!"))
+        assertThrows(NotFoundException::class.java) { service.details(owner + 1, id) }
+        assertThrows(NotFoundException::class.java) { service.exportChapter(owner + 1, id, 0, "txt") }
+    }
+
+    @Test fun `resume can change model and glossary while preserving completed chapter bytes`() = runBlocking {
+        coEvery { client.translate(any(), any()) } answers {
+            if (!secondArg<String>().contains("Hello")) throw OpenRouterException("failure", code = "http_400")
+            OpenRouterCompletion("""["Cześć ","świecie","!"]""")
+        }
+        val service = service(this)
+        val id = service.start(owner, entryId, true, TranslationOptions(autoFallback = false)).jobId
+        awaitStopped(service, id)
+        assertEquals(1, service.status(owner, id).completedChapters)
+        val before = dir.resolve("jobs/$id/0-0.json").toFile().readBytes()
+        coEvery { client.listFreeTextModels() } returns listOf(OpenRouterModel("next-free", "Next"))
+        coEvery { client.translate("next-free", any()) } answers {
+            assertTrue(secondArg<String>().contains("Conjoiners → Spójni"))
+            OpenRouterCompletion("""["Drugi"]""")
+        }
+        service.resume(owner, id, TranslationOptions(modelId = "next-free", glossary = "Conjoiners → Spójni"))
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
+        assertArrayEquals(before, dir.resolve("jobs/$id/0-0.json").toFile().readBytes())
+    }
+
+    @Test fun `references are owner scoped Polish same author EPUBs and sampled context is persisted`() = runBlocking {
+        translationFixture(dir.resolve("reference.epub"), "<p>Polskie nazewnictwo</p>", language = "pl")
+        dsl.insertInto(BOOKS).set(BOOKS.MD5, "reference").set(BOOKS.TITLE, "Referencja").set(BOOKS.LANGUAGE, "Polish [pl]")
+            .set(BOOKS.AUTHOR, "Author").set(BOOKS.INDEXED_AT, Instant.now().toString()).execute()
+        val reference = entries.add(owner, "reference", "epub").id!!
+        entries.updateFilePath(owner, "reference", "epub", "reference.epub")
+        val service = service(this)
+        assertEquals(listOf(reference), service.references(owner, entryId).map { it.id })
+        val preview = service.previewContext(owner, entryId, TranslationOptions(referenceLibraryIds = listOf(reference), referenceChapters = 2))
+        val id = service.start(owner, entryId, true, TranslationOptions(referenceLibraryIds = listOf(reference), referenceChapters = 2)).jobId
+        awaitStopped(service, id)
+        val options = service.details(owner, id).options
+        assertTrue(options.referenceText.contains("Polskie nazewnictwo"))
+        assertEquals(preview.referenceText, options.referenceText)
+        assertEquals(options, EpubTranslationWorkspace(dir.resolve("jobs")).options(id))
+        dsl.update(BOOKS).set(BOOKS.AUTHOR, "Different Author").where(BOOKS.MD5.eq("reference")).execute()
+        assertTrue(service.references(owner, entryId).none { it.id == reference })
+    }
+
+    @Test fun `reference download checks owner author language and format before acquisition`() {
+        dsl.insertInto(BOOKS).set(BOOKS.MD5, "candidate").set(BOOKS.TITLE, "Reference")
+            .set(BOOKS.AUTHOR, "Author").set(BOOKS.LANGUAGE, "pl").set(BOOKS.FORMAT, "epub")
+            .set(BOOKS.INDEXED_AT, Instant.now().toString()).execute()
+        library.validateTranslationReferenceDownload(owner, entryId, "candidate")
+        assertThrows(NotFoundException::class.java) { library.validateTranslationReferenceDownload(owner + 1, entryId, "candidate") }
+        dsl.update(BOOKS).set(BOOKS.LANGUAGE, "en").where(BOOKS.MD5.eq("candidate")).execute()
+        assertThrows(ValidationException::class.java) { library.validateTranslationReferenceDownload(owner, entryId, "candidate") }
+        dsl.update(BOOKS).set(BOOKS.LANGUAGE, "pl").set(BOOKS.FORMAT, "pdf").where(BOOKS.MD5.eq("candidate")).execute()
+        assertThrows(ValidationException::class.java) { library.validateTranslationReferenceDownload(owner, entryId, "candidate") }
+        dsl.update(BOOKS).set(BOOKS.FORMAT, "epub").set(BOOKS.AUTHOR, "Someone Else").where(BOOKS.MD5.eq("candidate")).execute()
+        assertThrows(ValidationException::class.java) { library.validateTranslationReferenceDownload(owner, entryId, "candidate") }
+    }
+
     @Test
     fun `recognizes catalog English language labels`() {
         assertTrue(isEnglish("English [en]"))
         assertFalse(isEnglish("Englishish"))
+    }
+
+    @Test fun `explicit free model can replace an unavailable administrator default`() = runBlocking {
+        settings.setTranslationDefaultModel("unavailable")
+        val service = service(this)
+        val id = service.start(owner, entryId, true, TranslationOptions(modelId = "free")).jobId
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
     }
 
     @Test fun `third transient failure pauses and resume publishes separate Polish entry`() = runBlocking {
