@@ -28,6 +28,24 @@ class TranslationRateLimitPolicyTest {
         assertEquals(listOf(60_000L, 120_000L, 240_000L), waits)
     }
 
+    @Test fun `fractional millisecond deadline remains gated until cooldown expires`() = runBlocking {
+        var now = Instant.parse("2026-09-16T12:00:00Z")
+        val deadline = now.plusSeconds(60).plusNanos(500_000)
+        val waits = mutableListOf<Long>()
+        val policy = TranslationRateLimitPolicy(
+            EpubTranslationWorkspace(root), { now },
+            { waits.add(it); now = now.plusMillis(it) }, { 0 }
+        )
+        val jobId = UUID.randomUUID().toString()
+        policy.record(jobId, OpenRouterRateLimit(retryAt = deadline.toString()), 1)
+
+        policy.awaitReady(jobId)
+
+        assertFalse(now.isBefore(deadline), "Request eligibility must not precede the server deadline")
+        assertNull(policy.active(jobId))
+        assertEquals(listOf(60_000L, 1L), waits)
+    }
+
     @Test fun `long server reset and existing shared deadline cannot be shortened`() = runBlocking {
         val now = Instant.parse("2026-09-16T12:00:00Z")
         val policy = TranslationRateLimitPolicy(EpubTranslationWorkspace(root), { now }, { fail("Must not sleep for a day") }, { 0 })

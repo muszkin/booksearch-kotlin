@@ -47,7 +47,7 @@ class TranslationRateLimitPolicy(
             val record = active(jobId) ?: return
             val millis = Duration.between(now(), deadline(record)).toMillis()
             if (millis > 300_000) throw limited(record)
-            if (millis > 0) wait(millis) else return
+            wait(millis.coerceAtLeast(1))
         }
     }
 
