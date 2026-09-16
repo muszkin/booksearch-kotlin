@@ -141,9 +141,11 @@ class OpenRouterClient(
         val completion: String? = null,
         val request: String? = null
     ) {
-        fun isFreeTextRequest(): Boolean = listOf(prompt, completion, request).all { price ->
+        fun isFreeTextRequest(): Boolean = listOf(prompt, completion).all(::isZeroPrice) &&
+            (request == null || isZeroPrice(request))
+
+        private fun isZeroPrice(price: String?): Boolean =
             price?.let { runCatching { BigDecimal(it).compareTo(BigDecimal.ZERO) == 0 }.getOrDefault(false) } == true
-        }
     }
 
     @Serializable

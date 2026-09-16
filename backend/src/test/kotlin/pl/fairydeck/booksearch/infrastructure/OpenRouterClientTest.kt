@@ -42,7 +42,7 @@ class OpenRouterClientTest {
     fun `filters paid and non-text models`() = runBlocking {
         val client = clientResponding(modelsResponse())
 
-        assertEquals(listOf("free"), client.listFreeTextModels().map { it.id })
+        assertEquals(listOf("free", "free-without-request-price"), client.listFreeTextModels().map { it.id })
 
         client.close()
     }
@@ -137,7 +137,7 @@ class OpenRouterClientTest {
             {"id":"paid","name":"Paid text","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0.0001","request":"0"}},
             {"id":"paid-prompt","name":"Paid prompt","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0.0001","completion":"0","request":"0"}},
             {"id":"paid-request","name":"Paid request","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0","request":"0.0001"}},
-            {"id":"missing-price","name":"Missing price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0"}},
+            {"id":"free-without-request-price","name":"Free text without request price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0"}},
             {"id":"invalid-price","name":"Invalid price","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"free","completion":"0","request":"0"}},
             {"id":"image","name":"Free image","architecture":{"output_modalities":["image"]},"pricing":{"prompt":"0","completion":"0","request":"0"}}
           ]
