@@ -64,11 +64,13 @@ class TranslationService(
         return workspace.exportChapter(jobId, index, format == "md")
     }
 
-    private suspend fun prepareOptions(userId: Int, sourceId: Int, options: TranslationOptions, previous: TranslationOptions? = null): TranslationOptions {
-        if (options.glossary.length > 12000 || options.notes.length > 4000 || options.referenceLibraryIds.size > 5 ||
-            options.referenceChapters !in 1..5 || options.fallbackModelIds.size > 10) throw ValidationException("Translation context or model list exceeds limits")
-        options.modelId?.let { validateModel(it) }
-        options.fallbackModelIds.forEach { validateModel(it) }
+    private suspend fun prepareOptions(userId: Int, sourceId: Int, requested: TranslationOptions, previous: TranslationOptions? = null): TranslationOptions {
+        if (requested.glossary.length > 12000 || requested.notes.length > 4000 || requested.referenceLibraryIds.size > 5 ||
+            requested.referenceChapters !in 1..5 || requested.fallbackModelIds.size > 10) throw ValidationException("Translation context or model list exceeds limits")
+        requested.modelId?.let { validateModel(it) }
+        // Free models churn; stale fallbacks are dropped (execute() filters them too) instead of blocking start/resume.
+        val options = if (requested.fallbackModelIds.isEmpty()) requested
+            else freeModelIds().let { free -> requested.copy(fallbackModelIds = requested.fallbackModelIds.filter { it in free }) }
         if (previous != null && previous.referenceLibraryIds == options.referenceLibraryIds && previous.referenceChapters == options.referenceChapters)
             return options.copy(referenceText = previous.referenceText)
         val excerpts = options.referenceLibraryIds.distinct().map { id ->
@@ -269,10 +271,13 @@ class TranslationService(
     }
 
     private suspend fun validateModel(model: String) {
+        if (model !in freeModelIds()) throw ValidationException("Selected translation model is no longer free")
+    }
+
+    private suspend fun freeModelIds(): Set<String> {
         val available = client ?: throw ValidationException("Translation is not configured")
-        try {
-            if (available.listFreeTextModels().none { it.id == model }) throw ValidationException("Selected translation model is no longer free")
-        } catch (_: OpenRouterException) { throw ValidationException("Could not validate the free translation model") }
+        return try { available.listFreeTextModels().mapTo(HashSet()) { it.id } }
+        catch (_: OpenRouterException) { throw ValidationException("Could not validate the free translation model") }
     }
 
     private fun rejectActiveCooldown(jobId: String) {
