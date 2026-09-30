@@ -210,10 +210,11 @@ class TranslationServiceTest {
             assertTrue(secondArg<String>().contains("Conjoiners → Spójni"))
             OpenRouterCompletion("""["Drugi"]""")
         }
-        service.resume(owner, id, TranslationOptions(modelId = "next-free", glossary = "Conjoiners → Spójni"))
+        service.resume(owner, id, TranslationOptions(modelId = "next-free", fallbackModelIds = listOf("delisted-free", "next-free"), glossary = "Conjoiners → Spójni"))
         awaitStopped(service, id)
         assertEquals("completed", service.status(owner, id).status)
         assertArrayEquals(before, dir.resolve("jobs/$id/0-0.json").toFile().readBytes())
+        assertEquals(listOf("next-free"), service.details(owner, id).options.fallbackModelIds)
     }
 
     @Test fun `references are owner scoped Polish same author EPUBs and sampled context is persisted`() = runBlocking {
