@@ -195,11 +195,12 @@ class TranslationService(
             for (attempt in 1..(3 * chapterModels.size)) {
                 val model = chapterModels[(attempt - 1) / 3]
                 if (model in unavailable) continue
+                val fallback = model != chapterModels.last()
                 chapters.markAttemptStarted(jobId, chapter.index)
                 try {
                     for (segment in chapter.segments) {
                         if (workspace.result(segment) != null) continue
-                        translateSegment(jobId, segment, model, options, smaller = attempt % 3 != 1)
+                        translateSegment(jobId, segment, model, options, smaller = attempt % 3 != 1, fallback = fallback)
                     }
                     currentModel = model
                     val record = chapters.findByJobId(jobId).first { it.chapterIndex == chapter.index }
@@ -211,7 +212,11 @@ class TranslationService(
                 catch (e: Exception) {
                     val error = when (e) { is OpenRouterException -> e.code; is TranslationWorkspaceException -> e.code; else -> "translation_request_failed" }
                     chapters.markFailed(jobId, chapter.index, error)
-                    if (error == "http_429") { jobs.markPaused(jobId, error, chapter.index); return }
+                    if (error == "http_429") {
+                        // A provider-scoped limit throttles only this model's upstream; shared limits pause the job.
+                        if (fallback && (e as? OpenRouterException)?.rateLimit?.scope == "provider") { unavailable.add(model); continue }
+                        jobs.markPaused(jobId, error, chapter.index); return
+                    }
                     val retryable = e is TimeoutException || e is IOException || e is TranslationWorkspaceException || (e is OpenRouterException && e.retryable)
                     if (error == "model_no_longer_free") {
                         unavailable.add(model)
@@ -231,7 +236,7 @@ class TranslationService(
         catch (_: Exception) { jobs.markPaused(jobId, "publication_failed") }
     }
 
-    private suspend fun translateSegment(jobId: String, segment: TranslationSegment, model: String, options: TranslationOptions, smaller: Boolean) {
+    private suspend fun translateSegment(jobId: String, segment: TranslationSegment, model: String, options: TranslationOptions, smaller: Boolean, fallback: Boolean) {
         val groups = if (smaller) segment.texts.indices.chunked(12) else listOf(segment.texts.indices.toList())
         val combined = mutableListOf<String>()
         var inputs = 0; var outputs = 0
@@ -258,9 +263,12 @@ class TranslationService(
                 } catch (e: Exception) {
                     val code = when (e) { is TranslationWorkspaceException -> e.code; is OpenRouterException -> e.code; else -> "translation_request_failed" }
                     val message = when (e) { is TranslationWorkspaceException -> e.detail; is OpenRouterException -> "OpenRouter request failed ($code)."; else -> "Request failed before a valid translation was received." }
-                    val cooldown = if (e is OpenRouterException && code == "http_429") rateLimits.record(jobId, e.rateLimit ?: OpenRouterRateLimit(), ++throttled) else null
+                    val limit = if (e is OpenRouterException && code == "http_429") e.rateLimit ?: OpenRouterRateLimit() else null
+                    val switchModel = fallback && limit?.scope == "provider"
+                    val cooldown = if (limit != null && !switchModel) rateLimits.record(jobId, limit, ++throttled) else null
+                    val shown = cooldown ?: limit
                     workspace.recordAttempt(jobId, event.copy(status = "failed", errorCode = code, message = message,
-                        retryAt = cooldown?.retryAt, rateLimitScope = cooldown?.scope, rateLimitLimit = cooldown?.limit, rateLimitRemaining = cooldown?.remaining))
+                        retryAt = cooldown?.retryAt, rateLimitScope = shown?.scope, rateLimitLimit = shown?.limit, rateLimitRemaining = shown?.remaining))
                     logger.warn("Translation job={} chapter={} segment={} model={} code={}", jobId, segment.chapterIndex, segment.index, model, code)
                     if (cooldown != null && throttled < 3) continue
                     throw e
