@@ -12,7 +12,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.random.Random
 
-/** One configured key: provider and unknown limits deliberately gate every translation. */
+/** One configured key: platform and unknown limits gate every translation; provider limits do once no fallback model remains. */
 class TranslationRateLimitPolicy(
     workspace: EpubTranslationWorkspace,
     private val now: () -> Instant = Instant::now,

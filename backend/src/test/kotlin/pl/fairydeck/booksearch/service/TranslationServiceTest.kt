@@ -116,9 +116,9 @@ class TranslationServiceTest {
         assertFalse(attempt.toString().contains("secret"))
     }
 
-    @Test fun `all rate limit scopes pause after three responses without model fallback`() = runBlocking {
+    @Test fun `shared rate limit scopes pause after three responses without model fallback`() = runBlocking {
         coEvery { client.listFreeTextModels() } returns listOf(OpenRouterModel("free", "Free"), OpenRouterModel("other-free", "Other"))
-        for (origin in listOf("platform", "provider", "unknown")) {
+        for (origin in listOf("platform", "unknown")) {
             var now = Instant.parse("2026-09-16T12:00:00Z")
             val waits = mutableListOf<Long>()
             val calls = mutableListOf<String>()
@@ -145,6 +145,36 @@ class TranslationServiceTest {
             service.cancel(owner, id)
             java.nio.file.Files.deleteIfExists(dir.resolve("jobs/.rate-limits/shared.json"))
         }
+    }
+
+    @Test fun `provider rate limit falls back to the next model and pauses only when the last model is limited`() = runBlocking {
+        coEvery { client.listFreeTextModels() } returns listOf(OpenRouterModel("free", "Free"), OpenRouterModel("other-free", "Other"))
+        var now = Instant.parse("2026-09-16T12:00:00Z")
+        val waits = mutableListOf<Long>()
+        val calls = mutableListOf<String>()
+        var otherLimited = true
+        val policy = TranslationRateLimitPolicy(EpubTranslationWorkspace(dir.resolve("jobs")), { now }, { waits.add(it); now = now.plusMillis(it) }, { 0 })
+        coEvery { client.translate(any(), any()) } answers {
+            calls.add(firstArg())
+            if (firstArg<String>() == "free" || otherLimited) throw OpenRouterException("secret", true, "http_429", OpenRouterRateLimit("provider"))
+            OpenRouterCompletion(if (secondArg<String>().contains("Hello")) """["Cześć ","świecie","!"]""" else """["Drugi"]""")
+        }
+        val service = service(this, policy)
+        val id = service.start(owner, entryId, true).jobId
+        awaitStopped(service, id)
+        assertEquals(listOf("free", "other-free", "other-free", "other-free"), calls)
+        assertEquals(listOf(60_000L, 120_000L), waits)
+        assertEquals("paused", service.status(owner, id).status)
+        assertEquals("provider", service.status(owner, id).rateLimitScope)
+        assertEquals("provider", service.details(owner, id).attempts.first { it.requestedModel == "free" }.rateLimitScope)
+        now = now.plusSeconds(300)
+        otherLimited = false
+        calls.clear()
+        service.resume(owner, id)
+        awaitStopped(service, id)
+        assertEquals("completed", service.status(owner, id).status)
+        assertEquals(listOf("free", "other-free", "other-free"), calls)
+        assertEquals(listOf(60_000L, 120_000L), waits)
     }
 
     @Test fun `day long cooldown survives restart rejects resume and preserves saved chapter bytes`() = runBlocking {
